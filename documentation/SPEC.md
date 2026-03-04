@@ -323,23 +323,7 @@ board-game-olympics/
 
 ### .gitignore
 
-```
-# Credentials
-config.js
-
-# OS files
-.DS_Store
-Thumbs.db
-
-# Editor files
-*.swp
-*.swo
-.vscode/
-.idea/
-
-# Logs
-*.log
-```
+The `.gitignore` file is already created in the project root. It covers credentials (`config.js`), OS files, editor files, Claude Code (`.claude/`), Node modules (in case dev tooling is added later), and environment files. See the file directly for the full list.
 
 ---
 
