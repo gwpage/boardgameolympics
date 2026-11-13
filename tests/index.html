@@ -1,0 +1,74 @@
+<!doctype html>
+<!--
+  tests/index.html: browser test runner page (ADR-001).
+
+  Open it at http://localhost:8000/tests/ after running `python3 -m http.server 8000`
+  from the repo root, or run everything headlessly with `tests/run.sh`.
+
+  data-test-page tells app modules they are being imported for testing, so
+  importing public/js/app.js never starts the real app.
+-->
+<html lang="en" data-test-page>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Board Game Olympics — Tests</title>
+  <!-- Empty icon: stops the browser requesting /favicon.ico, which would show up as a 404 in run.sh output. -->
+  <link rel="icon" href="data:,">
+  <style>
+    :root { color-scheme: light dark; }
+    body { font: 15px/1.5 system-ui, sans-serif; margin: 0 auto; max-width: 960px; padding: 16px; }
+    pre { white-space: pre-wrap; word-break: break-word; }
+    #summary { font-size: 1.1rem; font-weight: 600; padding: 8px 12px; border-radius: 6px; }
+    #summary[data-status="running"] { background: #8884; }
+    #summary[data-status="pass"] { background: #2e8b5733; }
+    #summary[data-status="fail"] { background: #d6282833; }
+    #report .fail { color: #d62828; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <h1>Board Game Olympics — test suite</h1>
+  <p>Headless: <code>tests/run.sh</code>. How to write tests: <code>tests/harness.js</code> header.</p>
+
+  <!-- tests/run.sh reads these two elements: keep their ids and data-status values. -->
+  <pre id="summary" data-status="running">Running…</pre>
+  <pre id="report"></pre>
+
+  <script type="module">
+    import { defaultRunner, formatReport } from './harness.js';
+
+    /*
+     * TEST REGISTRY: list every test module here, in issue order.
+     * A module that fails to load (missing file, syntax error) is reported as a
+     * failed test, never silently skipped.
+     */
+    const TEST_MODULES = [
+      './js/test_001_harness.js',
+    ];
+
+    for (const path of TEST_MODULES) {
+      try {
+        await import(path);
+      } catch (error) {
+        defaultRunner.recordLoadError(path, error);
+      }
+    }
+
+    const report = await defaultRunner.run();
+    const { summary, lines } = formatReport(report);
+
+    const reportElement = document.getElementById('report');
+    for (const line of lines) {
+      const span = document.createElement('span');
+      span.className = line.ok ? 'pass' : 'fail';
+      span.textContent = `${line.text}\n`;
+      reportElement.append(span);
+    }
+
+    const summaryElement = document.getElementById('summary');
+    summaryElement.textContent = summary;
+    summaryElement.dataset.status = report.ok ? 'pass' : 'fail';
+    document.title = `${report.ok ? '✓' : '✗'} ${summary}`;
+  </script>
+</body>
+</html>
