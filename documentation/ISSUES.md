@@ -101,10 +101,10 @@ Each is recorded as an ADR in the issue that implements it. Override any of them
 ## [ISSUE-001] Project scaffold, dev docs & test harness
 
 - **Type:** Feature
-- **Status:** In Progress
+- **Status:** Complete
 - **Branch:** `issue/001-project-scaffold`
 - **Spec Reference:** SPEC.md § Project Structure, § Configuration, § Testing, § Design Principles
-- **PR:** —
+- **PR:** #2
 
 ### Description
 Create the static-site skeleton under `public/`, the zero-dependency browser test harness (ADR-001), and developer docs. Every later issue then has a place to land and a way to write tests first.
