@@ -7,7 +7,7 @@ Board Game Olympics is a lightweight, invitation-only event registration website
 ## Design Principles
 
 - **Static-first**: The front end is plain HTML, CSS, and vanilla JavaScript — no frameworks, no build step, no library dependencies.
-- **No custom backend**: All server-side logic (auth, database, storage, email) is handled by Supabase. No Cloudflare Workers or custom API layer needed.
+- **No custom backend**: All server-side logic (auth, database, storage, email) is handled by Supabase. The only custom server code is one small Supabase Edge Function that sends invitations (see [ADR-002](./DECISIONS.md)). No Cloudflare Workers or custom API layer needed.
 - **Cheap to run**: All infrastructure should target free tiers wherever possible.
 - **Document everything**: This project will sit untouched for up to a year between events. Every function, module, and configuration choice should be thoroughly commented and documented as if the person reading it has never seen the codebase before — because by next year, that person is effectively you. Inline comments should explain *why*, not just *what*. Each JS file should have a header comment describing its purpose and how it fits into the app. Any non-obvious Supabase configuration (RLS policies, storage rules, auth settings) should be documented in the code or in the `documentation/` folder.
 
@@ -249,21 +249,24 @@ The admin panel should have a dedicated section for sending bulk emails. All sen
 
 ### Configuration
 
-Since there is no build step, a traditional `.env` file won't work. Instead, use a `config.js` file loaded via `<script>` tag before the main application code. This file holds the Supabase connection details (which are safe to expose client-side — Row Level Security protects the data, not the key).
+Since there is no build step, a traditional `.env` file won't work. Instead, use a `public/config.js` file loaded via `<script>` tag before the main application code. This file holds the Supabase connection details (which are safe to expose client-side — Row Level Security protects the data, not the key).
 
 ```js
-// config.js
+// public/config.js
 const CONFIG = {
   SUPABASE_URL: 'https://your-project.supabase.co',
   SUPABASE_ANON_KEY: 'your-anon-key-here'
 };
 ```
 
-A `config.example.js` with placeholder values should be committed to the repo. The real `config.js` should be added to `.gitignore` so credentials stay out of version control.
+A `public/config.example.js` with placeholder values is committed to the repo. The real `config.js` is gitignored so credentials stay out of version control.
+
+- **Local development:** copy `public/config.example.js` to `public/config.js` and fill in the dev project's values.
+- **Production:** Cloudflare Pages runs `sh scripts/write-config.sh` as its build command, which writes `public/config.js` from the Pages environment variables `SUPABASE_URL` and `SUPABASE_ANON_KEY`. This one file write is the only "build" step; there is no bundling, transpiling, or npm. See [ADR-003](./DECISIONS.md).
 
 ### Database & Auth
 
-- **Supabase** (free tier) provides:
+- **Supabase** (free tier; kept awake between events by a scheduled GitHub Actions ping, see [ADR-004](./DECISIONS.md)) provides:
   - **PostgreSQL database** — 500 MB storage, more than sufficient for this use case.
   - **Supabase Auth** — built-in support for Google/Facebook OAuth and magic link authentication.
   - **Supabase Storage** — for flag image uploads (1 GB free).
@@ -275,40 +278,80 @@ A `config.example.js` with placeholder values should be committed to the repo. T
 
 ### Email (Invitations, Magic Links & Reminders)
 
-- **Magic links**: Handled natively by Supabase Auth.
-- **All other emails** (invitations, RSVP follow-ups, event reminders): Sent via Supabase using **Gmail SMTP** as the custom mail provider. See [`SETUP_SUPABASE.md`](./SETUP_SUPABASE.md) for configuration details.
+Supabase's custom SMTP setting (**Gmail SMTP**) only sends **Auth** emails, so emails are split by type (see [ADR-002](./DECISIONS.md)):
+
+- **Magic links**: Handled natively by Supabase Auth, sent through Gmail SMTP.
+- **Invitations**: Sent automatically by a small Supabase Edge Function (`invite-user`). It verifies the caller is an admin, then calls Supabase Auth's invite API, which sends the customised **Invite** template through Gmail SMTP. The invite link carries the invitation token.
+- **RSVP follow-ups and event reminders**: The admin panel builds a `mailto:` link with the recipients in BCC and a prefilled, editable subject and body. It opens in the admin's own mail app, and the admin clicks Send. If the recipient list is too long for a link, the panel offers copy-to-clipboard instead.
+- **Returning users**: People from previous years already have accounts, so they can't receive Supabase's invite email. After **Start New Year** resets everyone to "no response", the RSVP follow-up serves as their annual invitation.
+
+See [`SETUP_SUPABASE.md`](./SETUP_SUPABASE.md) for SMTP and template configuration.
+
+### Testing
+
+Tests are written before implementation and need no installed tooling beyond Python 3 and Chrome (see [ADR-001](./DECISIONS.md)):
+
+- **JS tests** (`tests/js/`): ES modules run in a real browser by a small hand-written harness (`tests/index.html`). `tests/run.sh` runs them in headless Chrome. Supabase is faked, so tests never touch the network.
+- **Database tests** (`tests/db/`): plain SQL `ASSERT` scripts, each wrapped in a transaction that rolls back. They are run in the Supabase SQL Editor against the **dev** project, never production.
+- **Deploy tests** (`tests/deploy/`): `bash` and `curl` only.
 
 ### Project Structure
 
+Everything the browser loads lives in `public/`, which is the Cloudflare Pages output directory. Everything else stays in the repo but is never served (see [ADR-003](./DECISIONS.md)).
+
 ```
 board-game-olympics/
-├── index.html                  ← Landing page / dashboard (single URL, two views)
-├── config.js                   ← Real Supabase credentials (gitignored)
-├── config.example.js           ← Placeholder credentials (committed to repo)
-├── css/
-│   └── styles.css              ← All site styles in one file
-├── js/
-│   ├── theme.js                ← Light/dark mode toggle, system preference detection (also inline in <head>)
-│   ├── app.js                  ← Main entry point, routing, auth state handling
-│   ├── auth.js                 ← Login, logout, magic link, SSO logic
-│   ├── supabase.js             ← Supabase client initialization
-│   ├── feed.js                 ← Activity feed rendering and infinite scroll
-│   ├── messages.js             ← Message board posting, rendering, infinite scroll
-│   ├── profile.js              ← Profile editing, country selection, flag upload, RSVP
-│   ├── rules.js                ← Rules page rendering
-│   └── admin.js                ← Admin panel: invitations, users, theme, emails, moderation
-├── assets/
-│   ├── images/
-│   │   ├── logo.png            ← Site logo
-│   │   ├── logo-small.png      ← Favicon / small version
-│   │   ├── default-avatar.png  ← Generic icon for users without a flag
-│   │   ├── meeple.svg          ← Meeple icon used for the "like" button
-│   │   └── og-image.png        ← Open Graph social sharing image
-│   └── favicon.ico
-├── documentation/              ← Spec, setup guides, content checklist
+├── public/                     ← Served by Cloudflare Pages (build output dir)
+│   ├── index.html              ← Landing page / dashboard (single URL, two views)
+│   ├── config.js               ← Real Supabase settings (gitignored; generated at deploy)
+│   ├── config.example.js       ← Placeholder settings (committed to repo)
+│   ├── _headers                ← Cloudflare security headers
+│   ├── css/
+│   │   └── styles.css          ← All site styles in one file
+│   ├── js/
+│   │   ├── theme.js            ← Light/dark mode toggle, system preference detection (also inline in <head>)
+│   │   ├── app.js              ← Main entry point, routing, auth state handling
+│   │   ├── auth.js             ← Login, logout, magic link, SSO logic
+│   │   ├── supabase.js         ← Supabase client initialization
+│   │   ├── feed.js             ← Activity feed rendering and infinite scroll
+│   │   ├── messages.js         ← Message board posting, rendering, infinite scroll
+│   │   ├── profile.js          ← Profile editing, country selection, flag upload, RSVP
+│   │   ├── rules.js            ← Rules page rendering
+│   │   └── admin.js            ← Admin panel: invitations, users, theme, emails, moderation
+│   └── assets/
+│       ├── images/
+│       │   ├── logo.png            ← Site logo
+│       │   ├── logo-small.png      ← Favicon / small version
+│       │   ├── default-avatar.png  ← Generic icon for users without a flag
+│       │   ├── meeple.svg          ← Meeple icon used for the "like" button
+│       │   └── og-image.png        ← Open Graph social sharing image
+│       └── favicon.ico
+├── db/
+│   ├── migrations/             ← Ordered SQL: schema, RLS, storage, RPCs
+│   └── seed/                   ← Admin seed (all envs) + 2025 test data (dev only)
+├── supabase/
+│   └── functions/
+│       └── invite-user/        ← Reference copy of the invitation Edge Function
+├── tests/
+│   ├── index.html              ← Browser test runner page
+│   ├── harness.js              ← Hand-written test harness
+│   ├── run.sh                  ← Headless Chrome runner
+│   ├── js/                     ← JS tests
+│   ├── db/                     ← SQL tests (run in Supabase SQL Editor)
+│   └── deploy/                 ← bash/curl deploy checks
+├── scripts/
+│   └── write-config.sh         ← Pages build command: writes public/config.js from env vars
+├── .github/
+│   └── workflows/
+│       └── keepalive.yml       ← Pings Supabase every 3 days so the free tier doesn't pause
+├── documentation/              ← Spec, decisions, issues, setup guides, content checklist
 │   ├── SPEC.md
+│   ├── DECISIONS.md
+│   ├── ISSUES.md
+│   ├── README.md
 │   ├── SETUP_CLOUDFLARE.md
 │   ├── SETUP_SUPABASE.md
+│   ├── SEED_DATA_2025.md
 │   ├── CONTENT_CHECKLIST.md
 │   └── COLORS.md
 └── .gitignore
@@ -316,6 +359,7 @@ board-game-olympics/
 
 **Guiding principles for the structure:**
 
+- **Served vs. not served**: only `public/` is deployed. Site code uses relative paths so it works both at `/` in production and at `/public/` on a local server rooted at the repo.
 - **One JS file per feature** — each file handles one area of the app. If a file gets too long, split it further, but start here.
 - **CSS in one file** — for a small app, a single stylesheet is easier to maintain than scattered styles. Use comments to section it (e.g., `/* === Message Board === */`).
 - **Assets separate from code** — images and icons in their own folder so they're easy to find and replace.
