@@ -110,42 +110,47 @@ Each is recorded as an ADR in the issue that implements it. Override any of them
 Create the static-site skeleton under `public/`, the zero-dependency browser test harness (ADR-001), and developer docs. Every later issue then has a place to land and a way to write tests first.
 
 ### Acceptance Criteria
-- [ ] `public/index.html`, `public/config.example.js`, `public/css/styles.css`, and every `public/js/*.js` file listed in SPEC § Project Structure exist. Each JS file has a header comment covering its purpose and how it fits the app.
-- [ ] `public/index.html` loads, in order:
+- [x] `public/index.html`, `public/config.example.js`, `public/css/styles.css`, and every `public/js/*.js` file listed in SPEC § Project Structure exist. Each JS file has a header comment covering its purpose and how it fits the app.
+- [x] `public/index.html` loads, in order:
   1. the inline theme script in `<head>`
   2. `config.js` (classic script)
   3. the Supabase JS client from the CDN, pinned to an **exact version with an SRI hash**
   4. `js/app.js` as an ES module
 
   All paths are relative.
-- [ ] The existing `assets/images/logo.png` is moved (`git mv`) to `public/assets/images/logo.png`.
-- [ ] `tests/index.html` runs every registered test module and shows pass/fail per test plus a summary.
-- [ ] `tests/run.sh` serves the repo root with `python3 -m http.server`, runs the harness in headless Chrome, prints the summary, and exits non-zero on any failure. `CHROME_BIN` overrides the browser path.
-- [ ] `documentation/README.md` covers local setup: copy config, serve, run JS tests, run SQL tests.
-- [ ] `documentation/DECISIONS.md` gains ADRs for ES modules with no build step and for the pinned CDN version. ADR-001 to ADR-004 already exist.
-- [ ] Placeholder assets exist in `public/assets/`: `default-avatar.png`, an original simple `meeple.svg` that uses `currentColor`, a favicon, and `logo-small.png` derived from the existing logo.
+- [x] The existing `assets/images/logo.png` is moved (`git mv`) to `public/assets/images/logo.png`.
+- [x] `tests/index.html` runs every registered test module and shows pass/fail per test plus a summary.
+- [x] `tests/run.sh` serves the repo root with `tests/server.py` (Python stdlib), runs the harness in headless Chrome in real time (the page POSTs its results back), prints the report, and exits non-zero on any failure, crash, or timeout. `CHROME_BIN` overrides the browser path.
+- [x] `documentation/README.md` covers local setup: copy config, serve, run JS tests, run SQL tests.
+- [x] `documentation/DECISIONS.md` gains ADRs for ES modules with no build step and for the pinned CDN version. ADR-001 to ADR-004 already exist.
+- [x] Placeholder assets exist in `public/assets/`: `default-avatar.png`, an original simple `meeple.svg` that uses `currentColor`, a favicon, and `logo-small.png` derived from the existing logo.
 
 ### Tests
 - **Test file(s):** `tests/js/test_001_harness.js`
-- [ ] A passing test is reported as pass; a throwing test is reported as fail (self-test on a nested runner instance).
-- [ ] Async tests are awaited; a rejected promise counts as a failure.
-- [ ] `assertEqual` deep-compares objects and arrays and reports expected vs actual.
-- [ ] `public/config.example.js` defines `CONFIG.SUPABASE_URL` and `CONFIG.SUPABASE_ANON_KEY` placeholders.
-- [ ] `.gitignore` contains `config.js`, which also covers `public/config.js`.
-- [ ] `public/index.html` references no root-absolute paths (no `src="/…"` or `href="/…"`).
+- [x] A passing test is reported as pass; a throwing test is reported as fail (self-test on a nested runner instance).
+- [x] Async tests are awaited; a rejected promise counts as a failure.
+- [x] `assertEqual` deep-compares objects and arrays and reports expected vs actual.
+- [x] `public/config.example.js` defines `CONFIG.SUPABASE_URL` and `CONFIG.SUPABASE_ANON_KEY` placeholders.
+- [x] `.gitignore` contains `config.js`, which also covers `public/config.js`.
+- [x] `public/index.html` references no root-absolute paths (no `src="/…"` or `href="/…"`).
 
 ### Tasks
-- [ ] Write harness self-tests
-- [ ] Implement `tests/harness.js` (describe/it/assert, async, DOM reporter, machine-readable summary element)
-- [ ] `tests/index.html` registry and `tests/run.sh`
-- [ ] Create the `public/` directory structure, stub files with header comments, and `config.example.js`
-- [ ] `git mv assets public/assets`
-- [ ] Placeholder assets
-- [ ] `README.md` and the new ADRs in `DECISIONS.md`
+- [x] Write harness self-tests
+- [x] Implement `tests/harness.js` (describe/it/assert, async, DOM reporter, machine-readable summary element)
+- [x] `tests/index.html` registry and `tests/run.sh`
+- [x] Create the `public/` directory structure, stub files with header comments, and `config.example.js`
+- [x] `git mv assets public/assets`
+- [x] Placeholder assets
+- [x] `README.md` and the new ADRs in `DECISIONS.md`
 
 ### Notes
 - Depends on: none.
 - No `package.json`. Cloudflare Pages may try an npm install if one exists, and the project has no npm deps.
+- The runner was first built on Chrome's `--dump-dom` with `--virtual-time-budget`. Virtual time raced off-main-thread work:
+  image-decode tests timed out at random. It now uses `tests/server.py` and real time (ADR-001, amended).
+  Failure modes were verified by hand: a missing test module, a syntax error in the harness, and a 404 on the harness each fail fast with a clear message.
+- Supabase JS is pinned to `2.118.0` (published 2026-10-15) with a sha384 SRI hash (ADR-006).
+- `logo.png` is 2.4 MB, too heavy for the landing page. Optimise or replace it in ISSUE-010.
 
 ---
 
