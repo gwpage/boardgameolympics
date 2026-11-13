@@ -101,7 +101,7 @@ Each is recorded as an ADR in the issue that implements it. Override any of them
 ## [ISSUE-001] Project scaffold, dev docs & test harness
 
 - **Type:** Feature
-- **Status:** Open
+- **Status:** In Progress
 - **Branch:** `issue/001-project-scaffold`
 - **Spec Reference:** SPEC.md § Project Structure, § Configuration, § Testing, § Design Principles
 - **PR:** —
