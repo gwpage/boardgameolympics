@@ -1,0 +1,39 @@
+/*
+ * Board Game Olympics: all site styles.
+ *
+ * One stylesheet, organised by section comments (SPEC § Project Structure).
+ * Colours come ONLY from the CSS custom properties in "Theme tokens"
+ * (COLORS.md). Never hard-code hex values elsewhere; ISSUE-006 adds a test
+ * that enforces this.
+ *
+ * Sections are filled in by the issue noted beside each one.
+ */
+
+/* === Theme tokens: light default + [data-theme="dark"] (ISSUE-006) === */
+
+/* === Base: element defaults, typography === */
+
+body {
+  margin: 0;
+  /* System font stack: no web-font download, no third-party dependency. */
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  line-height: 1.5;
+}
+
+/* === Layout: header, sidebar, main (ISSUE-009, ISSUE-013) === */
+
+/* === Landing page (ISSUE-010) === */
+
+/* === Login & registration (ISSUE-011, ISSUE-012) === */
+
+/* === Activity feed (ISSUE-018) === */
+
+/* === Message board & meeple likes (ISSUE-016, ISSUE-017) === */
+
+/* === Profile & flag upload (ISSUE-014, ISSUE-015) === */
+
+/* === Rules (ISSUE-019) === */
+
+/* === Admin panel (ISSUE-020 to ISSUE-028) === */
+
+/* === Responsive overrides (ISSUE-029) === */
