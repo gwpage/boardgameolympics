@@ -59,7 +59,7 @@ Each is recorded as an ADR in the issue that implements it. Override any of them
 | 004 | Flag storage bucket & policies | 002 |
 | 005 | Seed data — admin & 2025 test data | 002 |
 | 006 | Theme system (light / Game Night Mode) | 001 |
-| 007 | Supabase client & cookie session storage | 001 |
+| 007 | Supabase client & cookie session storage | 001, 032 |
 | 008 | Shared UI utilities | 001 |
 | 009 | App shell, hash router & auth-state views | 007 |
 | 010 | Public landing page | 003, 009 |
@@ -74,7 +74,7 @@ Each is recorded as an ADR in the issue that implements it. Override any of them
 | 019 | Rules page | 009 |
 | 020 | Admin panel shell & access control | 012 |
 | 021 | Admin — invite links, invitation list, revocation | 020 |
-| 022 | Email delivery mechanism | 003 |
+| 022 | Email delivery mechanism | 003, 032 |
 | 023 | Admin — email invitations | 021, 022 |
 | 024 | Admin — user management | 015, 020 |
 | 025 | Admin — event date & theme | 013, 020 |
@@ -82,12 +82,13 @@ Each is recorded as an ADR in the issue that implements it. Override any of them
 | 027 | Admin — bulk emails | 020, 022 |
 | 028 | Admin — Start New Year | 016, 018, 021 |
 | 029 | Responsive design & accessibility pass | 010, 013–019 |
-| 030 | Production deployment | 001–029 |
-| 031 | Supabase keep-alive | 003 |
+| 030 | Production deployment | 001–029, 032 |
+| 031 | Supabase keep-alive | 003, 032 |
+| 032 | Switch to publishable and secret API keys | 001 |
 
 **Parallel waves**: each wave opens once the previous wave's PRs merge.
 1. **001, 002**
-2. 003, 004, 005 (after 002) · 006, 007, 008 (after 001)
+2. 003, 004, 005 (after 002) · 006, 008, 032 (after 001) · 007 (after 032)
 3. 009 · 022 · 031 (after 003)
 4. 010, 011, 013, 018, 019
 5. 012
@@ -1364,3 +1365,39 @@ Free-tier projects pause after 7 idle days. The site sits idle for months betwee
 ### Notes
 - Depends on: 003.
 - The repo is **public** (checked 2026-11-13), so GitHub disables scheduled workflows after 60 days with no repo activity. Between events, expect an email from GitHub roughly 2–3 times a year. Then open Actions → keepalive → Enable workflow, and run it once by hand.
+
+---
+
+## [ISSUE-032] Switch to publishable and secret API keys
+
+- **Type:** Enhancement
+- **Status:** In Progress
+- **Branch:** `issue/032-new-api-keys`
+- **Spec Reference:** SPEC.md § Configuration; SETUP_SUPABASE.md § Step 3; DECISIONS.md ADR-014
+- **PR:** —
+
+### Description
+Supabase is deprecating the legacy JWT-based `anon` and `service_role` API keys "by the end of 2026". Their replacements are the **publishable** key (`sb_publishable_…`) for the browser and **secret** keys (`sb_secret_…`) for server-side code. The setup guide, spec, ADRs and several open issues still say to use the legacy keys, and `config.example.js` names its key `SUPABASE_ANON_KEY`. No code reads the config yet (ISSUE-007 is open), so switching now costs only renames.
+
+### Acceptance Criteria
+- [ ] SETUP_SUPABASE.md Step 3 explains publishable vs secret keys and where each one goes. It also covers where to find them in the current dashboard, how to create them on a project that has only legacy keys, and how to deactivate the legacy keys.
+- [ ] `public/config.example.js` defines `CONFIG.SUPABASE_PUBLISHABLE_KEY` in place of `SUPABASE_ANON_KEY`.
+- [ ] The following use the new key names: SPEC § Configuration, README, ADR-002/003/004, and open issues 007, 022, 030 and 031. ADR-014 records the decision.
+- [ ] No doc tells the reader to fetch or use a legacy key. `anon`, `authenticated` and `service_role` remain wherever they mean the Postgres roles, which are unchanged.
+
+### Tests
+- **Test file(s):** `tests/js/test_001_harness.js`
+- [ ] `public/config.example.js` defines exactly `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY`, both obvious placeholders.
+- [ ] Manual: `git grep -nE "ANON_KEY|anon key|service_role key"` finds only historical notes.
+
+### Tasks
+- [ ] Update the config test, then `config.example.js`
+- [ ] Rewrite SETUP_SUPABASE.md Step 3, and the README setup steps
+- [ ] ADR-014; amend ADR-002/003/004; update SPEC § Configuration
+- [ ] Update open issues 007, 022, 030, 031
+- [ ] Boss: on dev and prod, create the new keys if missing and deactivate the legacy keys (SETUP_SUPABASE.md Step 3)
+
+### Notes
+- Depends on: 001.
+- Supabase gives no exact removal date beyond "by the end of 2026". Source: https://supabase.com/docs/guides/getting-started/api-keys
+- The Postgres roles are unchanged. A publishable-key request runs as `anon` when signed out and as `authenticated` when signed in. A secret-key request runs as `service_role`. RLS policies and grants (ISSUE-002/003) need no change.
