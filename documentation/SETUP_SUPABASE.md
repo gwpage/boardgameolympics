@@ -21,6 +21,8 @@ This guide walks you through signing up for Supabase and configuring the databas
    - **Region**: Pick the region closest to the majority of your event attendees (e.g., `us-east-1` for the eastern US).
 3. Click **"Create new project"**. It takes about a minute to provision.
 
+**Create two projects:** `board-game-olympics-dev` for development and testing, and `board-game-olympics` for production. The free tier allows two. Follow this guide for each. The dev project gets the 2025 test data, and SQL tests run there; production never gets either.
+
 ---
 
 ## Step 3: Get Your API Keys
@@ -136,20 +138,27 @@ Supabase's default email sender has rate limits (around 2–3 emails per hour on
 
 ## Step 6: Create the Database Tables
 
-You can run SQL directly in the Supabase dashboard:
+The schema lives in `db/migrations/`, as numbered SQL files. Apply them **in order**, once per project:
 
 1. Go to **SQL Editor** in the left sidebar.
 2. Click **"New query"**.
-3. You'll create the tables defined in `SPEC.md` (Users, Invitations, Messages, Message Likes, Event Settings, Country Claims) here. The exact SQL will be written during implementation, but the schema is outlined in the spec.
+3. Paste the whole of `db/migrations/001_schema.sql` and click **Run**. Expect "Success. No rows returned".
+4. Repeat for each later migration file (`002_…`, `003_…`) in number order.
+
+Each migration runs in a single transaction, so it applies completely or not at all. Re-running one is harmless.
+
+**Check it worked (dev project only):** paste and run `tests/db/test_002_schema.sql`. It changes nothing (everything is rolled back) and passes with "Success. No rows returned". See the [developer guide](./README.md#database-tests-sql) for details.
 
 ### Enable Row Level Security (RLS)
 
-Supabase exposes your database via a public REST API, so **Row Level Security is essential**. Every table should have RLS enabled with appropriate policies:
+Supabase exposes your database via a public REST API, so **Row Level Security is essential**.
+
+`001_schema.sql` turns RLS on for every table with **no** policies, so the public API can read and write nothing until the policies migration (ISSUE-003) is applied. The intended access rules, refined in ISSUE-003, are:
 
 - **Users**: Users can read all profiles, but only update their own (name, country, flag, RSVP). Admins can update any user.
 - **Invitations**: Only admins can create, read, and revoke invitations.
 - **Messages**: Authenticated users can read all and create their own. Admins can delete any.
-- **Country Claims**: Authenticated users can read all. Users can create their own.
+- **Country Claims**: Authenticated users can read all. Nobody inserts them directly: a database trigger records a claim whenever a user's country changes ([ADR-011](./DECISIONS.md)).
 - **Message Likes**: Authenticated users can read all. Users can insert and delete their own likes (toggle behavior).
 - **Event Settings**: All authenticated users can read (needed to display the sidebar). Only admins can update.
 
