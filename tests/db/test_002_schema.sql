@@ -479,6 +479,8 @@ do $$
 declare
   auth_id uuid := pg_temp.new_auth_user('link');
   member_id uuid;
+  unlinked_auth_id uuid;
+  unlinked_id uuid;
   linked uuid;
 begin
   insert into public.users (name, email, auth_user_id)
@@ -502,9 +504,14 @@ begin
 
   -- Deleting the Auth account (e.g. from the dashboard) keeps the profile and
   -- unlinks it, so the person can sign in again later and be re-linked by email.
-  delete from auth.users where id = auth_id;
-  select auth_user_id into linked from public.users where id = member_id;
-  assert linked is null, '[accounts] deleting the auth user unlinks the profile instead of deleting it';
+  -- Uses a profile with no messages, so nothing else would block a cascade.
+  unlinked_auth_id := pg_temp.new_auth_user('unlink');
+  insert into public.users (name, email, auth_user_id)
+  values ('T002 Unlink', 't002-unlink@example.test', unlinked_auth_id) returning id into unlinked_id;
+  delete from auth.users where id = unlinked_auth_id;
+  select auth_user_id into linked from public.users where id = unlinked_id;
+  assert found, '[accounts] deleting the auth user must keep the profile';
+  assert linked is null, '[accounts] deleting the auth user must unlink the profile';
 
   perform pg_temp.expect_error('accounts: invitation_id must be a real invitation',
     format('update public.users set invitation_id = %L where id = %L', gen_random_uuid(), member_id), '23503');
