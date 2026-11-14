@@ -22,6 +22,7 @@ This project sits untouched for up to a year at a time. Start here, then read:
 - **Python 3** for the local web server and test server. macOS ships with it.
 - **Google Chrome** for headless test runs.
 - **git.**
+- **PostgreSQL command-line tools** (optional), to run the SQL tests locally: `brew install postgresql@17`. They are a development tool only; neither the site nor the database depends on them (ADR-013).
 
 There is no npm, no Node, no bundler and no build step (ADR-001, ADR-005). The only third-party code is the Supabase JS client, loaded from a CDN and pinned to an exact version (ADR-006).
 
@@ -32,7 +33,7 @@ public/          Everything the browser loads. Cloudflare Pages serves only this
   index.html     The single page: landing page when logged out, dashboard when logged in.
   config.js      Your Supabase settings (gitignored; see below).
   js/  css/  assets/
-db/              SQL migrations and seed data (from ISSUE-002).
+db/              SQL: migrations/ (the schema, applied in order) and seed/ (seed data, from ISSUE-005).
 tests/           Test harness, test page, and tests: js/, db/, deploy/.
 scripts/         Deploy helpers (from ISSUE-030).
 documentation/   You are here.
@@ -92,21 +93,48 @@ Rules:
 
 ### Database tests (SQL)
 
-SQL tests live in `tests/db/test_###_*.sql` and run against the **dev** Supabase project. **Never run them against production.** Each file:
+SQL tests live in `tests/db/test_###_*.sql`. Each file:
 
-- wraps everything in `begin; … rollback;`, so it leaves no trace;
-- checks expectations with PL/pgSQL `ASSERT` inside `do $$ … $$` blocks;
-- simulates users with `set local role authenticated` plus `set local request.jwt.claims = '…'`.
+- wraps everything in `begin; … rollback;`, so it leaves no trace and is safe to re-run;
+- checks expectations with PL/pgSQL `ASSERT` inside `do $$ … $$` blocks, and expects errors with a small `pg_temp.expect_error(label, sql, sqlstate)` helper defined at the top of the file;
+- simulates signed-in users by inserting throwaway `auth.users` rows and setting `request.jwt.claims`, which is what `auth.uid()` reads.
 
-To run one:
+There are two ways to run them.
 
-1. Apply the migrations first (see `db/`, from ISSUE-002).
+**Locally (fast, for development).** This needs the PostgreSQL tools (see Requirements):
+
+```sh
+tests/db/run_local.sh                                 # every tests/db/test_*.sql
+tests/db/run_local.sh tests/db/test_002_schema.sql    # just one
+```
+
+It creates a throwaway Postgres (Unix socket only, nothing on the network) and applies `tests/db/supabase_stub.sql`, a minimal stand-in for Supabase's roles, `auth.users` and `auth.uid()`. Then it applies every migration **twice** (to prove they're safe to re-run), applies any seed files, runs the tests, prints `PASS`/`FAIL`, and deletes the database. A run takes a second or two. Exit codes: 0 pass, 1 failure, 2 setup problem. Set `PG_BIN` if the tools aren't in the Homebrew location.
+
+**In Supabase (the real check, before merging).** Run against the **dev** project. **Never run tests against production.**
+
+1. Apply the migrations first (see Applying migrations below).
 2. Open the dev project in the Supabase dashboard and go to **SQL Editor** → **New query**.
 3. Paste the whole test file and click **Run**.
 4. **Pass:** no error ("Success. No rows returned").
-   **Fail:** an error naming the failed `ASSERT`.
+   **Fail:** an error whose message starts with the `[label]` of the failed check.
 
-`psql` isn't required. If you install it later (`brew install libpq`), the same files run unchanged with `psql "$DEV_DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/db/<file>.sql`.
+The stub only imitates Supabase, so the Supabase run is what counts. If the two ever disagree, fix the stub.
+
+`psql` against Supabase works too, if you prefer it to the dashboard: `psql "$DEV_DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/db/<file>.sql`. Use the direct connection string under Project Settings → Database, and keep it out of the repo.
+
+**Writing a SQL test:**
+
+- Copy the helper block from the top of an existing test file, so each file can still be pasted on its own.
+- Start every assertion message with a `[label]`, so a failure points straight at the check.
+- Use emails at `example.test` (a reserved domain) with a per-file prefix such as `t002-`, so test rows never collide with real or seeded users. Never assume a table is empty.
+- Wrap destructive checks (deleting rows other tests rely on) in `savepoint …; … rollback to savepoint …;`.
+- Add the new file to the Tests section of its issue in ISSUES.md.
+
+### Applying migrations
+
+The schema lives in `db/migrations/` as numbered files (`001_schema.sql`, `002_…`). To set up a Supabase project, paste each file into **SQL Editor** → **New query** and click **Run**, in number order. Each file runs in one transaction, so it applies completely or not at all. Re-running one is harmless.
+
+To change the schema later, **add a new numbered migration**. Never edit one that has already been applied to production, because production would never see the change. Write the SQL test first, then check it passes with `tests/db/run_local.sh` before trying it on dev.
 
 ---
 
