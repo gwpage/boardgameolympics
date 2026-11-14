@@ -1377,33 +1377,34 @@ Free-tier projects pause after 7 idle days. The site sits idle for months betwee
 ## [ISSUE-032] Switch to publishable and secret API keys
 
 - **Type:** Enhancement
-- **Status:** In Progress
+- **Status:** Complete
 - **Branch:** `issue/032-new-api-keys`
 - **Spec Reference:** SPEC.md § Configuration; SETUP_SUPABASE.md § Step 3; DECISIONS.md ADR-014
-- **PR:** —
+- **PR:** #4
 
 ### Description
 Supabase is deprecating the legacy JWT-based `anon` and `service_role` API keys "by the end of 2026". Their replacements are the **publishable** key (`sb_publishable_…`) for the browser and **secret** keys (`sb_secret_…`) for server-side code. The setup guide, spec, ADRs and several open issues still say to use the legacy keys, and `config.example.js` names its key `SUPABASE_ANON_KEY`. No code reads the config yet (ISSUE-007 is open), so switching now costs only renames.
 
 ### Acceptance Criteria
-- [ ] SETUP_SUPABASE.md Step 3 explains publishable vs secret keys and where each one goes. It also covers where to find them in the current dashboard, how to create them on a project that has only legacy keys, and how to deactivate the legacy keys.
-- [ ] `public/config.example.js` defines `CONFIG.SUPABASE_PUBLISHABLE_KEY` in place of `SUPABASE_ANON_KEY`.
-- [ ] The following use the new key names: SPEC § Configuration, README, ADR-002/003/004, and open issues 007, 022, 030 and 031. ADR-014 records the decision.
-- [ ] No doc tells the reader to fetch or use a legacy key. `anon`, `authenticated` and `service_role` remain wherever they mean the Postgres roles, which are unchanged.
+- [x] SETUP_SUPABASE.md Step 3 explains publishable vs secret keys and where each one goes. It also covers where to find them in the current dashboard, how to create them on a project that has only legacy keys, and how to deactivate the legacy keys.
+- [x] `public/config.example.js` defines `CONFIG.SUPABASE_PUBLISHABLE_KEY` in place of `SUPABASE_ANON_KEY`.
+- [x] The following use the new key names: SPEC § Configuration, README, ADR-002/003/004, and open issues 007, 022, 030 and 031. ADR-014 records the decision.
+- [x] No doc tells the reader to fetch or use a legacy key. `anon`, `authenticated` and `service_role` remain wherever they mean the Postgres roles, which are unchanged.
 
 ### Tests
 - **Test file(s):** `tests/js/test_001_harness.js`
-- [ ] `public/config.example.js` defines exactly `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY`, both obvious placeholders.
-- [ ] Manual: `git grep -nE "ANON_KEY|anon key|service_role key"` finds only historical notes.
+- [x] `public/config.example.js` defines exactly `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY`, both obvious placeholders.
+- [x] Manual: `git grep -nE "ANON_KEY|anon key|service_role key"` finds only historical notes.
 
 ### Tasks
-- [ ] Update the config test, then `config.example.js`
-- [ ] Rewrite SETUP_SUPABASE.md Step 3, and the README setup steps
-- [ ] ADR-014; amend ADR-002/003/004; update SPEC § Configuration
-- [ ] Update open issues 007, 022, 030, 031
-- [ ] Boss: on dev and prod, create the new keys if missing and deactivate the legacy keys (SETUP_SUPABASE.md Step 3)
+- [x] Update the config test, then `config.example.js`
+- [x] Rewrite SETUP_SUPABASE.md Step 3, and the README setup steps
+- [x] ADR-014; amend ADR-002/003/004; update SPEC § Configuration
+- [x] Update open issues 007, 022, 030, 031
 
 ### Notes
 - Depends on: 001.
 - Supabase gives no exact removal date beyond "by the end of 2026". Source: https://supabase.com/docs/guides/getting-started/api-keys
 - The Postgres roles are unchanged. A publishable-key request runs as `anon` when signed out and as `authenticated` when signed in. A secret-key request runs as `service_role`. RLS policies and grants (ISSUE-002/003) need no change.
+- **Boss action (dashboard, before the end of 2026):** on dev, and on prod once it exists, create the new keys if they're missing, then deactivate the legacy keys (SETUP_SUPABASE.md Step 3). Nothing in the repo uses the legacy keys, so deactivating them breaks nothing.
+- Verified: `tests/run.sh` passes 34/34. The manual `git grep` finds only historical notes and explanations of the legacy keys. No SQL changed, so the DB tests are unaffected.
