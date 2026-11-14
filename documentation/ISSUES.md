@@ -131,7 +131,7 @@ Create the static-site skeleton under `public/`, the zero-dependency browser tes
 - [x] A passing test is reported as pass; a throwing test is reported as fail (self-test on a nested runner instance).
 - [x] Async tests are awaited; a rejected promise counts as a failure.
 - [x] `assertEqual` deep-compares objects and arrays and reports expected vs actual.
-- [x] `public/config.example.js` defines `CONFIG.SUPABASE_URL` and `CONFIG.SUPABASE_ANON_KEY` placeholders.
+- [x] `public/config.example.js` defines `CONFIG.SUPABASE_URL` and `CONFIG.SUPABASE_ANON_KEY` placeholders. (Renamed `SUPABASE_PUBLISHABLE_KEY` in ISSUE-032.)
 - [x] `.gitignore` contains `config.js`, which also covers `public/config.js`.
 - [x] `public/index.html` references no root-absolute paths (no `src="/…"` or `href="/…"`).
 
@@ -414,7 +414,7 @@ A single Supabase client configured from `CONFIG`, whose session is stored in lo
 - [ ] `public/js/supabase.js` exports one client with `persistSession`, `autoRefreshToken`, `detectSessionInUrl`, and a custom cookie `storage` adapter.
 - [ ] Cookies are set with `Path=/; SameSite=Lax; Max-Age=31536000`, plus `Secure` on https.
 - [ ] Values over the per-cookie size limit are split across numbered chunk cookies and reassembled. Shrinking or removing a value clears stale chunks.
-- [ ] Missing or placeholder config shows a clear on-page error instead of a blank page.
+- [ ] Missing or placeholder config shows a clear on-page error instead of a blank page. So does a secret key (`sb_secret_…`) pasted in by mistake.
 
 ### Tests
 - **Test file(s):** `tests/js/test_007_cookie_storage.js`
@@ -425,7 +425,7 @@ A single Supabase client configured from `CONFIG`, whose session is stored in lo
 - [ ] `removeItem` deletes all chunks.
 - [ ] Attributes include `Max-Age=31536000`, `SameSite=Lax`, `Path=/`, and `Secure` only on https.
 - [ ] Values containing `;`, `=`, spaces, and unicode round-trip.
-- [ ] `validateConfig` rejects a missing or placeholder URL or key.
+- [ ] `validateConfig` rejects a missing or placeholder URL or key, and a secret key (`sb_secret_…`).
 
 ### Tasks
 - [ ] Write tests
@@ -434,7 +434,8 @@ A single Supabase client configured from `CONFIG`, whose session is stored in lo
 - [ ] ADR: implicit auth flow and cookie storage (A11)
 
 ### Notes
-- Depends on: 001.
+- Depends on: 001, 032.
+- The client is created from `CONFIG.SUPABASE_URL` and `CONFIG.SUPABASE_PUBLISHABLE_KEY` (ADR-014). supabase-js takes the publishable key in place of the legacy anon key with no other change.
 - Use the **implicit** flow, not PKCE. PKCE breaks magic links opened in a different browser or a mail app's in-app browser, which is common on phones.
 - Safari caps JS-set cookies at 7 days (A11). Document this in the file header.
 
@@ -987,9 +988,9 @@ Both sit behind one interface that ISSUE-023 and ISSUE-027 use.
 
 ### Acceptance Criteria
 - [ ] An `invite-user` Edge Function, created in the Supabase dashboard editor so no CLI is needed:
-  - verifies the caller's JWT and admin role server-side
+  - verifies the caller's access token (the signed-in user's JWT, sent as `Authorization: Bearer`) and admin role inside the function
   - calls `auth.admin.inviteUserByEmail` with a redirect URL carrying the invite token
-- [ ] The `service_role` key lives only in Edge Function secrets, never in the repo or client.
+- [ ] The secret key comes only from the function's built-in `SUPABASE_SECRET_KEYS` environment variable (key `default`). It is never in the repo or client, and never copied by hand (ADR-014).
 - [ ] Bulk emails use a `mailto:` builder: recipients in BCC, prefilled subject and body. Falls back to "copy recipients/body" when the URL is too long.
 - [ ] The Invite email template is customised and a reference copy is committed under `documentation/`.
 
@@ -1001,12 +1002,16 @@ Both sit behind one interface that ISSUE-023 and ISSUE-027 use.
 
 ### Tasks
 - [ ] Write tests
-- [ ] Edge Function and secrets
+- [ ] Edge Function
 - [ ] `mailto:` builder
 - [ ] Commit the function source to `supabase/functions/invite-user/index.ts` as the reference copy, with deploy steps in SETUP_SUPABASE.md
 
 ### Notes
-- Depends on: 003.
+- Depends on: 003, 032.
+- New API keys (ADR-014):
+  - Supabase's gateway check (`verify_jwt`) doesn't understand the new keys, and Supabase now recommends checking callers inside the function. The function has to verify the access token and admin role itself either way. Decide the `verify_jwt` setting here and record it.
+  - Supabase suggests its `@supabase/server` helper for this. It is a new dependency, so justify it or do without it.
+  - The shell test sends the publishable key in the `apikey` header, and the user's access token in `Authorization: Bearer`.
 - Caveats (also recorded in ADR-002):
   - `inviteUserByEmail` fails for emails that already have an account. Returning users are reached by the RSVP follow-up after Start New Year instead.
   - Invite links are short-lived (≤24 h). That's harmless, because membership also matches by email on any later sign-in.
@@ -1301,15 +1306,16 @@ Stand up the production Supabase project and the Cloudflare Pages site on the cu
   - Site URL and redirect URLs
   - Gmail SMTP
   - the email templates
+  - publishable and secret API keys, with the legacy keys deactivated (SETUP_SUPABASE.md Step 3)
 - [ ] Cloudflare Pages is connected to GitHub with production branch `master` (A12), on the custom domain with SSL.
-- [ ] Pages build command is `sh scripts/write-config.sh` and the build output directory is `public/`. The script writes `public/config.js` from the Pages env vars `SUPABASE_URL` and `SUPABASE_ANON_KEY`, and fails the build if either is missing.
+- [ ] Pages build command is `sh scripts/write-config.sh` and the build output directory is `public/`. The script writes `public/config.js` from the Pages env vars `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY`. It fails the build if either is missing, or if the key is a secret key (`sb_secret_…`).
 - [ ] A `public/_headers` file sets a Content-Security-Policy (self + the pinned CDN + Supabase origin), `X-Content-Type-Options`, `Referrer-Policy`, and `frame-ancestors 'none'`.
 - [ ] SETUP_CLOUDFLARE.md and SETUP_SUPABASE.md are updated to match reality.
 
 ### Tests
 - **Test file(s):** `tests/deploy/test_030_deploy.sh`
-- [ ] `scripts/write-config.sh` writes a valid `public/config.js` from env vars, exits non-zero when either variable is missing, and correctly escapes quote characters in values.
-- [ ] `git grep` finds no `service_role` key or other secret in the repo.
+- [ ] `scripts/write-config.sh` writes a valid `public/config.js` from env vars and correctly escapes quote characters in values. It exits non-zero when either variable is missing, or when the key starts with `sb_secret_`.
+- [ ] `git grep` finds no secret key (`sb_secret_`), legacy `service_role` key, or other secret in the repo.
 - [ ] Against production:
   - `/` and `/config.js` return 200
   - `/documentation/`, `/db/`, `/tests/`, `/scripts/` return 404
@@ -1328,7 +1334,7 @@ Stand up the production Supabase project and the Cloudflare Pages site on the cu
 - [ ] Update setup docs
 
 ### Notes
-- Depends on: 001–029.
+- Depends on: 001–029, 032.
 - The Boss performs the dashboard and DNS steps. Claude prepares the files, checklists, and doc updates.
 
 - Apply migrations per SETUP_SUPABASE.md Step 6. Before any invitations go out, the admin sets the event date and theme, which creates the first `event_settings` row. Rows created earlier would be stamped with the calendar year (ADR-008).
@@ -1346,7 +1352,7 @@ Stand up the production Supabase project and the Cloudflare Pages site on the cu
 Free-tier projects pause after 7 idle days. The site sits idle for months between events, so the first visitor of the season would hit errors. Per ADR-004, a scheduled GitHub Actions job pings the project every 3 days.
 
 ### Acceptance Criteria
-- [ ] `.github/workflows/keepalive.yml` runs on a schedule at least every 3 days and `curl`s `get_public_event_info` using the anon key from repo secrets.
+- [ ] `.github/workflows/keepalive.yml` runs on a schedule at least every 3 days and `curl`s `get_public_event_info` using the publishable key from repo secrets. The key is sent in the `apikey` header only (ADR-014).
 - [ ] A failed ping fails the workflow, and GitHub emails the owner.
 - [ ] The workflow also supports `workflow_dispatch`, so it can be run by hand after re-enabling.
 - [ ] SETUP_SUPABASE.md § Project Pausing documents the repo secrets and the re-enable procedure.
@@ -1359,11 +1365,11 @@ Free-tier projects pause after 7 idle days. The site sits idle for months betwee
 ### Tasks
 - [ ] Write tests
 - [ ] Ping script and workflow
-- [ ] Add `SUPABASE_URL` and `SUPABASE_ANON_KEY` repo secrets (Boss)
+- [ ] Add `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` repo secrets (Boss)
 - [ ] Document in SETUP_SUPABASE.md
 
 ### Notes
-- Depends on: 003.
+- Depends on: 003, 032.
 - The repo is **public** (checked 2026-11-13), so GitHub disables scheduled workflows after 60 days with no repo activity. Between events, expect an email from GitHub roughly 2–3 times a year. Then open Actions → keepalive → Enable workflow, and run it once by hand.
 
 ---
