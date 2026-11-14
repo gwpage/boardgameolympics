@@ -157,7 +157,7 @@ Create the static-site skeleton under `public/`, the zero-dependency browser tes
 ## [ISSUE-002] Database schema, constraints & triggers
 
 - **Type:** Feature
-- **Status:** Open
+- **Status:** In Progress
 - **Branch:** `issue/002-database-schema`
 - **Spec Reference:** SPEC.md § Data Model, § Yearly Lifecycle; SETUP_SUPABASE.md Step 6
 - **PR:** —
