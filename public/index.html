@@ -1,0 +1,65 @@
+<!doctype html>
+<!--
+  public/index.html: the only page. Same URL, two views (SPEC § Home Page):
+  the public landing page when logged out, and the dashboard when logged in.
+  js/app.js decides which to show.
+
+  Every path in this file is RELATIVE (no leading "/"), so the site works at
+  "/" in production and at "/public/" on a local server rooted at the repo
+  (ADR-003). tests/js/test_001_harness.js enforces this.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Board Game Olympics</title>
+
+  <!--
+    Theme bootstrap (COLORS.md § Preventing Flash of Wrong Theme).
+    Stays inline and runs before the stylesheet, so the correct theme is set
+    before the first paint. Same logic as resolveTheme() in js/theme.js
+    (ISSUE-006): keep the two in sync.
+  -->
+  <script>
+    (function () {
+      var saved = null;
+      try {
+        saved = localStorage.getItem('theme');
+      } catch (error) {
+        // Storage can be blocked (private mode, strict settings). Fall back to the system preference.
+        saved = null;
+      }
+      if (saved === 'dark' || saved === 'light') {
+        document.documentElement.setAttribute('data-theme', saved);
+      } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        document.documentElement.setAttribute('data-theme', 'dark');
+      }
+    })();
+  </script>
+
+  <link rel="stylesheet" href="css/styles.css">
+  <link rel="icon" href="assets/favicon.ico" sizes="32x32">
+  <link rel="apple-touch-icon" href="assets/images/logo-small.png">
+
+  <!--
+    Load order matters. `defer` classic scripts and module scripts run in
+    document order once the HTML is parsed:
+      1. config.js:  defines the global CONFIG. Gitignored: copy config.example.js
+                     locally; Cloudflare Pages generates it at deploy (ADR-003).
+      2. Supabase:   defines the global `supabase`. Pinned to an exact version
+                     with an SRI hash (ADR-006); see documentation/README.md to upgrade.
+      3. js/app.js:  the app entry point (ES module, no build step, ADR-005).
+  -->
+  <script defer src="config.js"></script>
+  <script defer
+          src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/dist/umd/supabase.js"
+          integrity="sha384-TcHRA3zBbn+Lexh5n+Oil4guNPOS3rjNDpGRAN46u/s/mB2IZ50ceC6TYDU2yvgK"
+          crossorigin="anonymous"></script>
+  <script type="module" src="js/app.js"></script>
+</head>
+<body>
+  <noscript>Board Game Olympics needs JavaScript enabled.</noscript>
+  <!-- js/app.js renders the landing page or the dashboard into #app (ISSUE-009). -->
+  <main id="app">Loading…</main>
+</body>
+</html>

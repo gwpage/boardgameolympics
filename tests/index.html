@@ -1,0 +1,131 @@
+<!doctype html>
+<!--
+  tests/index.html: browser test runner page (ADR-001).
+
+  Manual run:   from the repo root run `python3 -m http.server 8000`,
+                then open http://localhost:8000/tests/
+  Headless run: tests/run.sh. It opens this page as /tests/?report, which makes
+                the page POST its results to tests/server.py.
+
+  data-test-page tells app modules they are being imported for testing, so
+  importing public/js/app.js never starts the real app.
+-->
+<html lang="en" data-test-page>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Board Game Olympics — Tests</title>
+  <!-- Empty icon: stops the browser requesting /favicon.ico, which would show up as a 404 in run.sh output. -->
+  <link rel="icon" href="data:,">
+  <style>
+    :root { color-scheme: light dark; }
+    body { font: 15px/1.5 system-ui, sans-serif; margin: 0 auto; max-width: 960px; padding: 16px; }
+    pre { white-space: pre-wrap; word-break: break-word; }
+    #summary { font-size: 1.1rem; font-weight: 600; padding: 8px 12px; border-radius: 6px; }
+    #summary[data-status="running"] { background: #8884; }
+    #summary[data-status="pass"] { background: #2e8b5733; }
+    #summary[data-status="fail"], #summary[data-status="crash"] { background: #d6282833; }
+    #report .fail { color: #d62828; font-weight: 600; }
+  </style>
+
+  <script>
+    /*
+     * Crash reporter. If tests/harness.js or the runner module below has a
+     * syntax error, the module never runs and no report would ever arrive;
+     * run.sh would only fail at its timeout. Errors before the harness starts
+     * are therefore reported immediately. Once the harness is running, errors
+     * are its job and this listener ignores them.
+     */
+    window.__harnessStarted = false;
+    window.__REPORT_ENDPOINT = '/__test-report__';
+    window.__shouldPostReport = new URLSearchParams(location.search).has('report');
+    // Capture phase (third argument true) also catches load failures such as a
+    // 404 on harness.js. Those fire on the <script> element and don't bubble.
+    window.addEventListener('error', function (event) {
+      if (window.__harnessStarted) {
+        return;
+      }
+      var detail = event.message ||
+        (event.target && event.target.tagName ? 'failed to load a <' + event.target.tagName.toLowerCase() + '>' : 'unknown error');
+      var message = 'Test page crashed before the harness started: ' + detail +
+        (event.filename ? ' (' + event.filename + ':' + event.lineno + ')' : '');
+      var summary = document.getElementById('summary');
+      if (summary) {
+        summary.textContent = message;
+        summary.setAttribute('data-status', 'crash');
+      }
+      if (window.__shouldPostReport) {
+        fetch(window.__REPORT_ENDPOINT, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'crash', summary: message, lines: [] })
+        });
+      }
+    }, true);
+  </script>
+</head>
+<body>
+  <h1>Board Game Olympics — test suite</h1>
+  <p>Headless: <code>tests/run.sh</code>. How to write tests: <code>tests/harness.js</code> header.</p>
+
+  <pre id="summary" data-status="running">Running…</pre>
+  <pre id="report"></pre>
+
+  <script type="module">
+    import { defaultRunner, formatReport } from './harness.js';
+
+    window.__harnessStarted = true;
+
+    /*
+     * TEST REGISTRY: list every test module here, in issue order.
+     * A module that fails to load (missing file, syntax error) is reported as a
+     * failed test, never silently skipped.
+     */
+    const TEST_MODULES = [
+      './js/test_001_harness.js',
+    ];
+
+    for (const path of TEST_MODULES) {
+      try {
+        await import(path);
+      } catch (error) {
+        defaultRunner.recordLoadError(path, error);
+      }
+    }
+
+    const report = await defaultRunner.run();
+    const { summary, lines } = formatReport(report);
+    const status = report.ok ? 'pass' : 'fail';
+
+    const reportElement = document.getElementById('report');
+    for (const line of lines) {
+      const span = document.createElement('span');
+      span.className = line.ok ? 'pass' : 'fail';
+      span.textContent = `${line.text}\n`;
+      reportElement.append(span);
+    }
+
+    const summaryElement = document.getElementById('summary');
+    summaryElement.textContent = summary;
+    summaryElement.dataset.status = status;
+    document.title = `${report.ok ? '✓' : '✗'} ${summary}`;
+
+    if (window.__shouldPostReport) {
+      try {
+        const response = await fetch(window.__REPORT_ENDPOINT, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status, summary, lines }),
+        });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+      } catch (error) {
+        // Most likely served by plain `python3 -m http.server`, which has no
+        // report endpoint. The on-page results above are still valid.
+        console.error('Could not post the test report (is tests/server.py serving this page?):', error);
+      }
+    }
+  </script>
+</body>
+</html>

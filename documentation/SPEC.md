@@ -336,6 +336,7 @@ board-game-olympics/
 │   ├── index.html              ← Browser test runner page
 │   ├── harness.js              ← Hand-written test harness
 │   ├── run.sh                  ← Headless Chrome runner
+│   ├── server.py               ← Stdlib static server that receives the headless test report
 │   ├── js/                     ← JS tests
 │   ├── db/                     ← SQL tests (run in Supabase SQL Editor)
 │   └── deploy/                 ← bash/curl deploy checks
