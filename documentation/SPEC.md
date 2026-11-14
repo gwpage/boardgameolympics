@@ -256,20 +256,20 @@ The reasons are in [ADR-007 – ADR-011](./DECISIONS.md), and the field limits a
 
 ### Configuration
 
-Since there is no build step, a traditional `.env` file won't work. Instead, use a `public/config.js` file loaded via `<script>` tag before the main application code. This file holds the Supabase connection details (which are safe to expose client-side — Row Level Security protects the data, not the key).
+Since there is no build step, a traditional `.env` file won't work. Instead, use a `public/config.js` file loaded via `<script>` tag before the main application code. This file holds the Supabase connection details: the Project URL and the **publishable** key (`sb_publishable_…`). Both are safe to expose client-side, because Row Level Security protects the data, not the key. Secret keys (`sb_secret_…`) and the legacy `anon`/`service_role` keys never go in it. See [ADR-014](./DECISIONS.md).
 
 ```js
 // public/config.js
 const CONFIG = {
   SUPABASE_URL: 'https://your-project.supabase.co',
-  SUPABASE_ANON_KEY: 'your-anon-key-here'
+  SUPABASE_PUBLISHABLE_KEY: 'your-publishable-key-here'
 };
 ```
 
 A `public/config.example.js` with placeholder values is committed to the repo. The real `config.js` is gitignored so credentials stay out of version control.
 
 - **Local development:** copy `public/config.example.js` to `public/config.js` and fill in the dev project's values.
-- **Production:** Cloudflare Pages runs `sh scripts/write-config.sh` as its build command, which writes `public/config.js` from the Pages environment variables `SUPABASE_URL` and `SUPABASE_ANON_KEY`. This one file write is the only "build" step; there is no bundling, transpiling, or npm. See [ADR-003](./DECISIONS.md).
+- **Production:** Cloudflare Pages runs `sh scripts/write-config.sh` as its build command, which writes `public/config.js` from the Pages environment variables `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY`. This one file write is the only "build" step; there is no bundling, transpiling, or npm. See [ADR-003](./DECISIONS.md).
 
 ### Database & Auth
 

@@ -31,13 +31,13 @@ Format: `~/.claude/rules/quality.md`. Open work that implements these lives in [
 
 - **Date:** 2026-11-13
 - **Status:** Accepted
-- **Context:** The spec says invitations, RSVP follow-ups, and event reminders are all sent "via Supabase using Gmail SMTP". Supabase's custom SMTP setting, however, is only used by **Supabase Auth** for magic links, confirmations, and its built-in invite email. A static site has no way to send arbitrary email. Inviting a user through Auth requires the `service_role` key, which must never reach the browser. Supabase Edge Functions block outbound SMTP on ports 25 and 587, so hand-rolling Gmail SMTP inside a function isn't dependable.
+- **Context:** The spec says invitations, RSVP follow-ups, and event reminders are all sent "via Supabase using Gmail SMTP". Supabase's custom SMTP setting, however, is only used by **Supabase Auth** for magic links, confirmations, and its built-in invite email. A static site has no way to send arbitrary email. Inviting a user through Auth requires a secret key (formerly the `service_role` key), which must never reach the browser. Supabase Edge Functions block outbound SMTP on ports 25 and 587, so hand-rolling Gmail SMTP inside a function isn't dependable.
 - **Decision:**
   - **Invitations:** an `invite-user` Edge Function, deployed from the Supabase dashboard editor with no CLI, handles them.
     - It verifies that the caller's JWT belongs to an active admin.
     - It calls `auth.admin.inviteUserByEmail` with a redirect URL that carries the invite token.
     - Supabase then sends the Invite template through the configured Gmail SMTP.
-    - `service_role` lives only in the function's secrets. The function source is committed under `supabase/functions/invite-user/` as the reference copy.
+    - The secret key (`sb_secret_…`) is read from the function's built-in `SUPABASE_SECRET_KEYS` environment variable and never leaves the server. (Amended 2026-11-14: originally the legacy `service_role` key, see ADR-014.) The function source is committed under `supabase/functions/invite-user/` as the reference copy.
   - **Bulk emails:** RSVP follow-ups and event reminders are built in the admin panel as a `mailto:` link, with recipients in BCC and the subject and body prefilled and editable. It opens the admin's own mail app, and the admin clicks Send. If the link exceeds safe URL length, the panel offers "copy recipients" and "copy body" instead.
 - **Consequences:**
   - No new services or accounts. Invitations are sent automatically, as the spec requires.
@@ -58,7 +58,7 @@ Format: `~/.claude/rules/quality.md`. Open work that implements these lives in [
   - **Pages settings:**
     - Build command: `sh scripts/write-config.sh`, a few lines of POSIX shell with no npm.
     - Build output directory: `public/`.
-    - Environment variables: `SUPABASE_URL` and `SUPABASE_ANON_KEY`.
+    - Environment variables: `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY`. (Amended 2026-11-14: originally `SUPABASE_ANON_KEY`, see ADR-014.)
   - **Config writer:** the script writes `public/config.js` and fails the build if either variable is missing.
   - **Local dev:** copy `public/config.example.js` to `public/config.js`. The existing `.gitignore` pattern `config.js` covers that path.
   - **Paths:** site code uses only relative paths, so it works at `/` in production and at `/public/` on a local server rooted at the repo. The test page needs the repo root as its server root to import `../public/js/*`.
@@ -77,7 +77,7 @@ Format: `~/.claude/rules/quality.md`. Open work that implements these lives in [
 - **Context:** Supabase pauses free-tier projects after 7 days without API traffic. Board Game Olympics is busy for one or two months a year and idle the rest, so without intervention the first visitor each season would see errors until the project is restored by hand. The spec rules out Cloudflare Workers and aims for free tiers.
 - **Decision:**
   - `.github/workflows/keepalive.yml` runs on a schedule every 3 days, and on demand via `workflow_dispatch`.
-  - It `curl`s the anonymous `get_public_event_info` RPC using `SUPABASE_URL` and `SUPABASE_ANON_KEY`, stored as repo secrets.
+  - It `curl`s the anonymous `get_public_event_info` RPC using `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY`, stored as repo secrets. The key goes in the `apikey` header only. (Amended 2026-11-14: originally `SUPABASE_ANON_KEY`, see ADR-014.)
   - A failed request fails the workflow, and GitHub emails the repo owner.
 - **Consequences:**
   - Free, no code dependencies, and failures are visible.
@@ -248,3 +248,23 @@ Format: `~/.claude/rules/quality.md`. Open work that implements these lives in [
   - The stub can drift from real Supabase. When the two disagree, fix the stub.
   - Only the Supabase features the stub imitates can be tested locally. ISSUE-004 will extend it with the storage schema.
   - Nothing in the site or the database depends on these tools. Without them, the SQL Editor workflow from ADR-001 still works.
+
+---
+
+## [ADR-014] Publishable and secret API keys; legacy keys deactivated
+
+- **Date:** 2026-11-14
+- **Status:** Accepted
+- **Context:** Supabase is deprecating the legacy JWT-based `anon` and `service_role` API keys "by the end of 2026". Their replacements are the publishable key (`sb_publishable_…`) and secret keys (`sb_secret_…`). Neither new key is a JWT. ADR-002, ADR-003 and ADR-004, the spec and the setup guide were all written around the legacy keys, and `config.example.js` named its key `SUPABASE_ANON_KEY`. No code read the config yet, so switching cost only renames.
+- **Decision:**
+  - The **browser**, the **Pages build** and the **keep-alive ping** use the publishable key. The `CONFIG` property, the Pages environment variable and the GitHub repo secret are all named `SUPABASE_PUBLISHABLE_KEY`.
+  - The **`invite-user` Edge Function** reads the secret key from Supabase's built-in `SUPABASE_SECRET_KEYS` environment variable, a JSON object keyed by key name (`default`). The secret key is never copied anywhere else.
+  - Hand-written HTTP calls send the key in the `apikey` header only. `Authorization: Bearer` carries only a signed-in user's access token.
+  - The legacy keys are **deactivated** on both projects (SETUP_SUPABASE.md Step 3).
+  - The Postgres roles are unchanged. A publishable-key request runs as `anon` when signed out and as `authenticated` when signed in. A secret-key request runs as `service_role`. RLS policies and grants need no change.
+- **Consequences:**
+  - Nothing breaks when Supabase removes the legacy keys.
+  - A leaked secret key can be revoked on its own. Rotating the legacy `service_role` key meant rotating the JWT secret, which signed every user out.
+  - Supabase's gateway check, `verify_jwt`, doesn't understand the new keys, and Supabase now recommends checking callers inside the function. The `invite-user` function has to verify the caller's access token and admin role itself anyway (ADR-002). ISSUE-022 decides the `verify_jwt` setting.
+  - Supabase's docs suggest an `@supabase/server` helper for Edge Functions. It would be a new dependency, so it is adopted only if ISSUE-022 justifies it.
+  - User access tokens are still signed by the legacy JWT secret. Moving to JWT signing keys is a separate migration and isn't part of this decision.
