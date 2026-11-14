@@ -27,22 +27,43 @@ This guide walks you through signing up for Supabase and configuring the databas
 
 ## Step 3: Get Your API Keys
 
-Once the project is ready:
+Supabase is retiring the legacy JWT-based `anon` and `service_role` keys **by the end of 2026**. This project uses only the keys that replace them ([ADR-014](./DECISIONS.md)):
 
-1. Go to **Project Settings** → **API** (in the left sidebar under "Configuration").
+| Key | Looks like | Replaces | Where it goes |
+|-----|------------|----------|---------------|
+| **Publishable** | `sb_publishable_…` | `anon` | Anywhere public: `public/config.js`, the Cloudflare Pages env var, the GitHub Actions secret |
+| **Secret** | `sb_secret_…` | `service_role` | Server-side only. The `invite-user` Edge Function reads it from its environment automatically, so you never copy it anywhere. |
+
+### Find the URL and publishable key
+
+1. Open the project and click **Connect** at the top of the dashboard.
 2. Note down two values:
-   - **Project URL**: Something like `https://abcdefg.supabase.co` — this is your API endpoint.
-   - **anon (public) key**: A long JWT string. This is safe to use in client-side JavaScript.
-3. You'll use these in your static site's JavaScript to connect to Supabase:
-   ```html
-   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-   <script>
-     const supabase = supabase.createClient(
-       'https://your-project.supabase.co',
-       'your-anon-key'
-     );
-   </script>
-   ```
+   - **Project URL**: something like `https://abcdefg.supabase.co`. This is your API endpoint.
+   - **Publishable key**: starts with `sb_publishable_`.
+3. Put them where they're needed:
+   - **Local development (dev project):** copy `public/config.example.js` to `public/config.js` and fill in `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY`. See the [developer guide](./README.md#local-development).
+   - **Production:** set the Cloudflare Pages environment variables `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` (ISSUE-030).
+
+The app creates its Supabase client from these values in `public/js/supabase.js`. You don't need to paste any code.
+
+### Create the new keys, if the project doesn't have them yet
+
+1. Go to **Project Settings** → **API Keys** and open the **Publishable and secret API keys** tab.
+2. If you see a **Create new API keys** button, the project still has only legacy keys. Click it. This creates a publishable key and a secret key, each named `default`.
+
+### Deactivate the legacy keys
+
+Creating new keys does **not** turn off the old ones. This project never uses the legacy keys, so turn them off on both projects. Then a leaked old key is useless.
+
+1. Go to **Project Settings** → **API Keys**, the same page as above.
+2. Deactivate the legacy `anon` and `service_role` keys. You can reactivate them later if needed.
+
+### Rules for the keys
+
+- **The publishable key is safe to expose.** Row Level Security protects the data, not the key. Requests made with it run as the Postgres role `anon` when nobody is signed in, and as `authenticated` when a user is. The RLS policies are written for those two roles, and the role names haven't changed.
+- **The secret key is never exposed.** It runs as `service_role`, which bypasses RLS completely. Never put it in `public/`, `config.js`, a Pages env var, a GitHub secret, a chat or a screenshot. Supabase rejects a secret key sent from a browser with HTTP 401, but a leaked key is still dangerous from anywhere else. If it leaks, create a new secret key on the **API Keys** page, then delete the leaked one. Revoking a secret key doesn't sign anybody out.
+- **Send keys in the `apikey` header only.** `Authorization: Bearer …` is reserved for a signed-in user's access token. Supabase rejects a new-style key there as "Invalid JWT". supabase-js does this for you; it matters for hand-written `curl` calls such as the keep-alive ping (ISSUE-031).
+- **JWT signing keys are a separate migration.** Your users' sessions are still signed with the project's legacy JWT secret. Switching to JWT signing keys is a separate migration from the API key change and isn't needed for this guide.
 
 ---
 
