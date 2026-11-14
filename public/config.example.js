@@ -2,22 +2,24 @@
  * config.example.js: template for public/config.js (SPEC § Configuration, ADR-003).
  *
  * LOCAL DEVELOPMENT
- *   Copy this file to public/config.js (gitignored) and fill in the values from
- *   your *dev* Supabase project: Project Settings → API.
+ *   Copy this file to public/config.js (gitignored) and fill in the Project URL
+ *   and publishable key (sb_publishable_…) of your *dev* Supabase project.
+ *   Both are shown by the dashboard's Connect button (SETUP_SUPABASE.md Step 3).
  *
  * PRODUCTION
  *   Cloudflare Pages generates public/config.js at deploy time from its
- *   SUPABASE_URL and SUPABASE_ANON_KEY environment variables
+ *   SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY environment variables
  *   (scripts/write-config.sh). Never commit real values.
  *
  * SAFETY
- *   The anon key is safe in the browser: Row Level Security protects the data,
- *   not the key. NEVER put the service_role key here or anywhere in public/.
+ *   The publishable key is safe in the browser: Row Level Security protects the
+ *   data, not the key. NEVER put a secret key (sb_secret_…) or the legacy
+ *   anon/service_role keys here or anywhere in public/ (ADR-014).
  *
  * Loaded by index.html as a classic <script> before the app, so CONFIG is a
  * global visible to every module.
  */
 const CONFIG = {
   SUPABASE_URL: 'https://your-project.supabase.co',
-  SUPABASE_ANON_KEY: 'your-anon-key-here'
+  SUPABASE_PUBLISHABLE_KEY: 'your-publishable-key-here'
 };

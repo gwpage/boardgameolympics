@@ -321,9 +321,13 @@ describe('scaffold: configuration', () => {
     // inside a function keeps that const out of this page's global scope.
     const config = new Function(`${source}\nreturn CONFIG;`)();
 
-    assertEqual(Object.keys(config).sort(), ['SUPABASE_ANON_KEY', 'SUPABASE_URL']);
+    // Publishable key, not the legacy anon key Supabase retires by end of 2026 (ADR-014).
+    assertEqual(Object.keys(config).sort(), ['SUPABASE_PUBLISHABLE_KEY', 'SUPABASE_URL']);
     assert(config.SUPABASE_URL.includes('your-project'), 'URL is an obvious placeholder');
-    assert(config.SUPABASE_ANON_KEY.includes('your-anon-key'), 'anon key is an obvious placeholder');
+    assert(
+      config.SUPABASE_PUBLISHABLE_KEY.includes('your-publishable-key'),
+      'publishable key is an obvious placeholder'
+    );
   });
 
   it('.gitignore ignores config.js at any depth, which covers public/config.js', async () => {
