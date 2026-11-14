@@ -3,7 +3,7 @@
  *
  * WHAT IT WILL DO
  *   - Validate CONFIG (from config.js) and show a clear on-page error if the
- *     URL or anon key is missing or still a placeholder.
+ *     URL or publishable key is missing or still a placeholder.
  *   - Create the client from the global `supabase` (pinned CDN bundle) with
  *     persistSession, autoRefreshToken, detectSessionInUrl, and the implicit
  *     auth flow.

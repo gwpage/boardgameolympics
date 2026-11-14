@@ -49,7 +49,7 @@ Site code uses **relative paths only** (no leading `/`), so the site works at `/
    ```sh
    cp public/config.example.js public/config.js
    ```
-   Fill in the **dev** project's URL and anon key, from the Supabase dashboard: Project Settings → API. `config.js` is gitignored. Never put the `service_role` key in it.
+   Fill in the **dev** project's URL and publishable key (`sb_publishable_…`). The dashboard's **Connect** button shows both; see [SETUP_SUPABASE.md Step 3](./SETUP_SUPABASE.md#step-3-get-your-api-keys). `config.js` is gitignored. Never put a secret key (`sb_secret_…`) or a legacy `anon`/`service_role` key in it.
 
 2. **Serve the repo root** (ES modules don't load from `file://`):
    ```sh
@@ -158,7 +158,7 @@ To change the schema later, **add a new numbered migration**. Never edit one tha
 
 Pushing to `master` deploys automatically through Cloudflare Pages:
 
-- **Build command:** `sh scripts/write-config.sh`. It writes `public/config.js` from the Pages environment variables `SUPABASE_URL` and `SUPABASE_ANON_KEY`.
+- **Build command:** `sh scripts/write-config.sh`. It writes `public/config.js` from the Pages environment variables `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY`.
 - **Output directory:** `public/`.
 
 Full setup is in [`SETUP_CLOUDFLARE.md`](./SETUP_CLOUDFLARE.md) and ADR-003. ISSUE-030 sets this up.
