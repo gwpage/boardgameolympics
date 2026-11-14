@@ -22,7 +22,7 @@ Format: `~/.claude/rules/quality.md`. Open work that implements these lives in [
   - Tests exercise the real browser runtime, so cookie, DOM, and image-decoding behaviour is genuinely tested.
   - Headless runs need Chrome (`CHROME_BIN` overrides its path). A full run takes a couple of seconds.
   - Every test file must be listed in the registry in `tests/index.html`. A missing or broken module is reported as a failed test, never silently skipped.
-  - SQL tests are run by hand in the dashboard. That's acceptable at this project's size; `psql` can be added later without changing the test files.
+  - SQL tests are run by hand in the dashboard. That's acceptable at this project's size; `psql` can be added later without changing the test files. (Amended 2026-11-14: they can also run against a throwaway local Postgres, see ADR-013. The dashboard run on dev is still the acceptance check.)
   - There is no CI test run. The suite is run locally before each PR.
 
 ---
@@ -118,3 +118,133 @@ Format: `~/.claude/rules/quality.md`. Open work that implements these lives in [
   - If jsDelivr is unreachable, the app can't talk to Supabase. That's accepted; vendoring a copy into `public/` is the fallback if it ever becomes a problem.
   - The production Content-Security-Policy (ISSUE-030) must allow `https://cdn.jsdelivr.net`.
   - A scaffold test checks that the URL is pinned to an exact `x.y.z` version and carries a sha384 hash.
+
+---
+
+## [ADR-007] User profiles are independent of Supabase Auth accounts
+
+- **Date:** 2026-11-14
+- **Status:** Accepted
+- **Context:** The spec has the admin "register a user on their behalf" for people who can't sign in themselves. It also seeds the admin and 20 test users who have never logged in. A Supabase Auth account (`auth.users`) only exists once someone signs in or is invited by email. If `users.id` were the Auth id, none of those profiles could exist (assumption A1).
+- **Decision:**
+  - `public.users.id` is the profile's own UUID.
+  - `users.auth_user_id` is nullable and unique, and references `auth.users(id)` with `on delete set null`.
+  - A profile is linked on sign-in by matching the sign-in email to `users.email`, ignoring case (`claim_membership`, ISSUE-012).
+  - RLS policies and RPCs identify the caller with `current_member_id()`, which maps `auth.uid()` to the active profile's id. They never compare a row's owner with `auth.uid()` directly.
+- **Consequences:**
+  - Seeded and admin-created profiles work, and are claimed automatically the first time their owner signs in with that email.
+  - Emails must be unique ignoring case, enforced by the unique index on `lower(email)`.
+  - One Auth account maps to at most one profile.
+  - Deleting an Auth account from the dashboard unlinks the profile instead of deleting it, so the person can sign in again and be re-linked.
+  - Every ownership check goes through `current_member_id()`. A policy that compares `user_id` with `auth.uid()` is a bug.
+
+---
+
+## [ADR-008] Yearly archive via `event_year` and `current_event_year()`
+
+- **Date:** 2026-11-14
+- **Status:** Accepted
+- **Context:** "Start New Year" must hide the previous year's messages, country claims and invitations while keeping them in the database. The spec's data model has no year marker (assumption A2).
+- **Decision:**
+  - `messages`, `country_claims` and `invitations` have `event_year integer not null`, defaulting to `current_event_year()`.
+  - `current_event_year()` is the highest `event_settings.year`.
+  - On a fresh install, before any `event_settings` row exists, it falls back to the calendar year, so rows always get a year.
+  - `event_year` is deliberately not a foreign key, so posting doesn't depend on a settings row existing.
+  - Likes need no year of their own; they belong to their message.
+  - The UI and RLS policies show only the current year.
+- **Consequences:**
+  - Start New Year (ISSUE-028) inserts one `event_settings` row and resets profiles. Nothing is moved, copied or deleted, and the archive stays queryable by year.
+  - Rows created before the first settings row are stamped with the calendar year. If the admin then creates settings for a different year, those early rows become "archived". That can only happen on a fresh install. ISSUE-030's production checklist has the admin set the event date (creating the first settings row) before inviting anyone.
+  - ISSUE-003's insert policies must require `event_year = current_event_year()`. Otherwise a client could post into a past or future year.
+
+---
+
+## [ADR-009] Invitations: `revoked` status, multi-use links, database-generated tokens
+
+- **Date:** 2026-11-14
+- **Status:** Accepted
+- **Context:** The spec wants revocable invitations and "one-time-use (or limited-use)" links, but its model has only `pending`/`accepted` and no use count (assumption A3). Link tokens are the only thing standing between the public and registration, so they must be unguessable.
+- **Decision:**
+  - `status` also allows `revoked`, with `revoked_at` set exactly when the status is `revoked`.
+  - `max_uses` defaults to 1 and is always 1 for email invitations. `use_count` runs from 0 to `max_uses`.
+  - Status becomes `accepted` when `use_count` reaches `max_uses`. `accepted_at` records the first use.
+  - The token is generated by the column default, never in the browser: two v4 UUIDs concatenated without hyphens. That gives 64 lowercase hex characters carrying 244 bits from Postgres's cryptographic RNG. A CHECK constraint enforces the format.
+- **Consequences:**
+  - No `pgcrypto` extension is needed: `gen_random_uuid()` is built in and uses the server's strong random source.
+  - The client can reject a malformed `?invite=` value before calling the server (`parseInviteToken`, ISSUE-012).
+  - An accepted invitation can still be revoked. Removing a user does this, which frees their email for a fresh invitation (ADR-010).
+
+---
+
+## [ADR-010] Removing a user deactivates them; history is never deleted
+
+- **Date:** 2026-11-14
+- **Status:** Accepted
+- **Context:** The spec says "Remove a user: deactivates their account and frees up their invitation". Deleting the row would erase their messages, likes and claims, which the yearly archive is meant to keep (assumption A4).
+- **Decision:**
+  - `users.is_active` and `users.deactivated_at` change together; a CHECK keeps them consistent.
+  - A deactivated user fails `is_member()` and `is_admin()`, so RLS gives them nothing. That includes a deactivated admin.
+  - Removal revokes the invitation recorded in `users.invitation_id`, so the same email can be invited again (ISSUE-024).
+  - Every foreign key to `users` is `on delete restrict`. A hard delete of a user with any history fails loudly instead of cascading.
+- **Consequences:**
+  - The admin can undo a removal by reactivating the profile.
+  - The removed user's messages stay on the board. How the board shows an author whose profile members can no longer read is decided in ISSUE-003 and ISSUE-016.
+  - Tidying up test users means deactivating them, or deleting them only when they have no history.
+
+---
+
+## [ADR-011] Country claims are written only by a database trigger
+
+- **Date:** 2026-11-14
+- **Status:** Accepted
+- **Context:** The activity feed shows "Alex claimed Genovia" entries from `country_claims`. If clients could insert claims, a member could forge claims for other people or flood the feed. SETUP_SUPABASE.md originally said "users can create their own" (assumption A10).
+- **Decision:**
+  - An `AFTER INSERT OR UPDATE OF country` trigger on `users` inserts a claim whenever a user's country becomes a new non-null value.
+  - Re-saving the same value or clearing the country records nothing.
+  - The trigger function is `SECURITY DEFINER`, because no role gets an INSERT policy on `country_claims` (ISSUE-003).
+  - The admin editing someone's country also records a claim.
+- **Consequences:**
+  - Saving a profile is one write; the claim follows automatically and always matches the profile.
+  - Start New Year clears every country without creating claims.
+  - Seed data with historical claim dates (ISSUE-005) inserts the user with their country, which creates the claim, then updates that claim's `claimed_at`. The seed runs as the table owner, so RLS doesn't apply.
+
+---
+
+## [ADR-012] Schema conventions
+
+- **Date:** 2026-11-14
+- **Status:** Accepted
+- **Context:** The schema will be read and changed by someone who last saw it a year ago, through the Supabase dashboard rather than an ORM. Supabase also exposes every table and function through a public API.
+- **Decision:**
+  - **Enumerations** are `text` columns with `CHECK (… in (…))`, not Postgres enum types. They're easier to change, and they read naturally through the API.
+  - **Limits** live in CHECK constraints (listed in the header of `001_schema.sql`). The UI checks the same limits first, for friendly messages.
+    - Lengths are `char_length`, i.e. Unicode code points, which match the client's code-point counting.
+    - "Not blank" means the value matches `[^[:space:]]`. `btrim()` only strips spaces, so it would let newline-only text through.
+  - **`flag_url` must be `https://`**, so a profile can't point other members' browsers at `javascript:`, `data:` or tracking URLs over plain http.
+  - **RLS is enabled when a table is created**, with no policies, so new tables deny all API access by default.
+  - **`SECURITY DEFINER` functions** use `set search_path = ''` and fully qualified names. EXECUTE is revoked from PUBLIC and `anon` (Supabase grants it by default) and granted only to the roles that need it.
+  - **Migrations** are numbered and run in one transaction. They are written to be re-runnable (`if not exists`, `create or replace`, `drop trigger if exists`) and are never edited once applied to production; changes go in a new migration.
+  - **`comment on`** documents every table, every function and every column the spec didn't list. The comments appear in the Supabase dashboard.
+- **Consequences:**
+  - Invalid data can't get in even if a client skips validation.
+  - A forgotten policy fails closed: no access, rather than open access.
+  - Supabase's Security Advisor will list "RLS enabled, no policy" for every table until ISSUE-003 lands. That is expected.
+
+---
+
+## [ADR-013] Optional local Postgres for running SQL tests
+
+- **Date:** 2026-11-14
+- **Status:** Accepted
+- **Context:** ADR-001 made the Supabase SQL Editor the only place SQL tests run. Each SQL mistake then cost a manual round trip through the dashboard, and tests couldn't be shown to pass before a PR. The Boss approved installing Homebrew `postgresql@17` as a development tool.
+- **Decision:**
+  - `tests/db/run_local.sh` creates a throwaway cluster (Unix socket only) and applies `tests/db/supabase_stub.sql`, which provides Supabase's API roles, default privileges, `auth.users` and `auth.uid()`.
+  - It applies every migration **twice**, proving they can be re-run, then the seeds, then the tests.
+  - Migrations and tests run as a non-superuser `postgres` role, like the SQL Editor, so permission mistakes aren't masked.
+  - The stub refuses to run on a real Supabase database.
+  - A passing run in the Supabase dev SQL Editor is still the acceptance check before merging.
+- **Consequences:**
+  - A full run takes about two seconds. That is quick enough to run constantly, and to check by deliberately breaking the migration that each test actually fails.
+  - The stub can drift from real Supabase. When the two disagree, fix the stub.
+  - Only the Supabase features the stub imitates can be tested locally. ISSUE-004 will extend it with the storage schema.
+  - Nothing in the site or the database depends on these tools. Without them, the SQL Editor workflow from ADR-001 still works.
