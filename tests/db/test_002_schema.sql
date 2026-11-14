@@ -358,9 +358,11 @@ begin
   perform pg_temp.expect_error('event_year: theme title over 100 characters',
     format('insert into public.event_settings (year, event_date, theme_title) values (%s, %L, %L)',
            base_year + 6, make_date(base_year + 6, 2, 15), repeat('t', 101)), '23514');
-  perform pg_temp.expect_error('event_year: theme description over 2000 characters',
+  perform pg_temp.expect_error('event_year: theme description over 1000 characters',
     format('insert into public.event_settings (year, event_date, theme_title, theme_desc) values (%s, %L, %L, %L)',
-           base_year + 6, make_date(base_year + 6, 2, 15), 'Long', repeat('d', 2001)), '23514');
+           base_year + 6, make_date(base_year + 6, 2, 15), 'Long', repeat('d', 1001)), '23514');
+  insert into public.event_settings (year, event_date, theme_title, theme_desc)
+  values (base_year + 2, make_date(base_year + 2, 2, 15), repeat('t', 100), repeat('d', 1000));
 
   -- updated_at is bumped by a trigger. now() is constant within a transaction,
   -- so start from an old timestamp and check that it moved.

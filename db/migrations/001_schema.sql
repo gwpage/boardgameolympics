@@ -23,7 +23,7 @@
 --   users.country             null, or 1–100 characters and not blank (SPEC: max 100)
 --   users.flag_url            null, or an https:// URL of at most 2048 characters
 --   messages.text             1–1000 characters, not blank
---   event_settings.theme_*    title 1–100 characters and not blank; description at most 2000
+--   event_settings.theme_*    title 1–100 characters and not blank; description at most 1000
 --   invitations.token         exactly 64 lowercase hex characters
 --   "Characters" means Unicode code points (char_length), not bytes.
 --   "Not blank" means the value contains at least one non-whitespace character.
@@ -52,7 +52,7 @@ create table if not exists public.event_settings (
   constraint event_settings_theme_title_check
     check (theme_title ~ '[^[:space:]]' and char_length(theme_title) <= 100),
   constraint event_settings_theme_desc_check
-    check (char_length(theme_desc) <= 2000)
+    check (char_length(theme_desc) <= 1000)
 );
 
 comment on table public.event_settings is
