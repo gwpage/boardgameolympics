@@ -161,6 +161,13 @@ The admin panel should have a dedicated section for sending bulk emails. All sen
 
 ## Data Model
 
+These are the logical models. The database implements them in `db/migrations/001_schema.sql` with snake_case names (`flagUrl` → `flag_url`). It adds a few fields the features below imply:
+- `users.auth_user_id`, `is_active`, `deactivated_at` and `invitation_id`;
+- `event_year` on messages, country claims and invitations;
+- `max_uses`, `use_count`, `revoked_at` and a `revoked` status on invitations.
+
+The reasons are in [ADR-007 – ADR-011](./DECISIONS.md), and the field limits are in the migration's header.
+
 ### Users
 
 ```

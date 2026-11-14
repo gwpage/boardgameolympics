@@ -11,7 +11,7 @@ Spec: [`SPEC.md`](./SPEC.md). Decisions: [`DECISIONS.md`](./DECISIONS.md).
 - **Layout:** every file the site serves lives in `public/` (`public/index.html`, `public/js/…`, `public/css/…`, `public/assets/…`), which is the Cloudflare Pages output dir. `db/`, `tests/`, `scripts/` and `documentation/` sit at the repo root and are never served. Site code uses **relative paths only**, so it works at `/` in prod and at `/public/` locally.
 - **Local dev:** from the repo root, run `python3 -m http.server 8000`, then open `http://localhost:8000/public/` for the site or `http://localhost:8000/tests/` for the test page.
 - **JS tests:** `tests/js/test_###_*.js`. These are ES modules that import source from `../../public/js/*.js` and run in a real browser via a small hand-written harness (`tests/index.html`), with no npm and no Node. `tests/run.sh` runs them in headless Chrome and exits non-zero on failure. Tests never touch the network; Supabase is replaced with fakes.
-- **DB tests:** `tests/db/test_###_*.sql`. Plain SQL using `ASSERT` inside `begin; … rollback;`, run in the Supabase SQL Editor against the **dev** project (optionally via `psql`). Never run against prod. Roles are simulated with `set local role` plus `request.jwt.claims`.
+- **DB tests:** `tests/db/test_###_*.sql`. Plain SQL using `ASSERT` inside `begin; … rollback;`, run in the Supabase SQL Editor against the **dev** project (optionally via `psql`). Never run against prod. Roles are simulated with `set local role` plus `request.jwt.claims`. For development, `tests/db/run_local.sh` runs them against a throwaway local Postgres (ADR-013). The dev SQL Editor run is the acceptance check.
 - **Shell tests:** `tests/deploy/test_###_*.sh`. Use `curl`/`bash` only.
 - **Two Supabase projects:** `dev` (migrations, seed admin, 2025 test data) and `prod` (migrations, seed admin only). The free tier allows two.
 - **Placeholder content:** copy and art from `CONTENT_CHECKLIST.md` use clearly marked placeholders until delivered. Content gaps don't block any issue.
@@ -157,51 +157,67 @@ Create the static-site skeleton under `public/`, the zero-dependency browser tes
 ## [ISSUE-002] Database schema, constraints & triggers
 
 - **Type:** Feature
-- **Status:** In Progress
+- **Status:** Complete
 - **Branch:** `issue/002-database-schema`
 - **Spec Reference:** SPEC.md § Data Model, § Yearly Lifecycle; SETUP_SUPABASE.md Step 6
-- **PR:** —
+- **PR:** #3
 
 ### Description
 SQL migrations for the six tables in the spec. Also adds the columns the spec implies but doesn't list (A1–A4), the country-claim trigger (A10), and the helper functions that RLS and storage policies rely on.
 
 ### Acceptance Criteria
-- [ ] `db/migrations/001_schema.sql` creates `users`, `invitations`, `messages`, `message_likes`, `event_settings`, `country_claims` (snake_case mapping of the spec's camelCase).
-- [ ] Additions: `users.auth_user_id` (nullable, unique, FK `auth.users`), `users.is_active`, `users.deactivated_at`, `users.invitation_id`. Also `event_year` on messages/country_claims/invitations, plus `invitations.max_uses` (default 1), `use_count`, `revoked_at`, and status `revoked`.
-- [ ] Constraints:
-  - email is unique case-insensitively
-  - `char_length(country) <= 100`
-  - message text is 1–1000 characters after trim
+- [x] `db/migrations/001_schema.sql` creates `users`, `invitations`, `messages`, `message_likes`, `event_settings`, `country_claims` (snake_case mapping of the spec's camelCase).
+- [x] Additions: `users.auth_user_id` (nullable, unique, FK `auth.users`), `users.is_active`, `users.deactivated_at`, `users.invitation_id`. Also `event_year` on messages/country_claims/invitations, plus `invitations.max_uses` (default 1), `use_count`, `revoked_at`, and status `revoked`.
+- [x] Constraints:
+  - email is unique case-insensitively and looks like an address (≤254)
+  - name is not blank and ≤100 characters
+  - country is null or not blank, ≤100 characters
+  - `flag_url` is null or `https://`, ≤2048 characters
+  - message text is not blank and ≤1000 characters
+  - theme title is not blank and ≤100 characters; description ≤1000 (mirrors ISSUE-025)
   - check constraints on rsvp/role/type/status
+  - invitation shape: email invites need an email and are single-use; `use_count` is between 0 and `max_uses`; `accepted_at` and `revoked_at` match the status; the token is 64 lowercase hex characters
+  - `is_active` and `deactivated_at` agree
   - `UNIQUE(message_id, user_id)`
   - one `event_settings` row per year
-  - likes cascade-delete with their message
-- [ ] Trigger: inserting a user with a country, or changing `users.country` to a **different non-null** value, inserts a `country_claims` row for the current event year. Clearing a country inserts nothing.
-- [ ] `SECURITY DEFINER` helpers with a fixed `search_path`: `current_event_year()`, `current_member_id()`, `is_member()` (active profile linked to `auth.uid()`), `is_admin()`.
-- [ ] Every table, column addition, and function has a comment explaining *why*.
+  - likes cascade-delete with their message; every foreign key to `users` is `ON DELETE RESTRICT`
+- [x] Trigger: inserting a user with a country, or changing `users.country` to a **different non-null** value, inserts a `country_claims` row for the current event year. Clearing a country inserts nothing.
+- [x] `SECURITY DEFINER` helpers with a fixed `search_path`: `current_event_year()`, `current_member_id()`, `is_member()` (active profile linked to `auth.uid()`), `is_admin()`. `anon` cannot execute them.
+- [x] RLS is enabled on all six tables with no policies (deny by default until ISSUE-003).
+- [x] Every table, column addition, and function has a comment explaining *why*.
+- [x] The migration runs in one transaction and can be safely re-run.
 
 ### Tests
 - **Test file(s):** `tests/db/test_002_schema.sql`
-- [ ] All six tables exist with the expected columns.
-- [ ] An email differing only by case from an existing one is rejected.
-- [ ] A 101-character country is rejected; 100 characters is accepted.
-- [ ] A whitespace-only message and a 1001-character message are rejected; 1000 characters is accepted.
-- [ ] Invalid rsvp, role, type, and status values are rejected.
-- [ ] A second like by the same user on the same message is rejected.
-- [ ] Deleting a message deletes its likes.
-- [ ] Claim trigger: setting a country creates a claim; changing it creates a second claim; re-saving the same value or clearing it creates none.
-- [ ] `current_event_year()` returns the max year. `is_member()`/`is_admin()` are correct for admin, member, deactivated member, and an auth user without a profile.
+- [x] All six tables exist with the expected columns, and RLS is enabled on each.
+- [x] Defaults: rsvp `no_response`, role `user`, active, unlinked; invitations pending, single-use, current year.
+- [x] An email differing only by case from an existing one is rejected; malformed, over-long and missing emails are rejected.
+- [x] A 101-character country is rejected; 100 characters is accepted, also counting emoji as one character each. A whitespace-only country is rejected.
+- [x] A whitespace-only message (including newlines and tabs) and a 1001-character message are rejected; 1000 characters is accepted, also 1000 emoji.
+- [x] Invalid rsvp, role, type, and status values are rejected.
+- [x] A second like by the same user on the same message is rejected.
+- [x] Deleting a message deletes its likes.
+- [x] Claim trigger: setting a country creates a claim; changing it creates a second claim; re-saving the same value or clearing it creates none.
+- [x] `current_event_year()` returns the max year, or the calendar year when no settings exist. `is_member()`/`is_admin()` are correct for admin, member, deactivated member, and an auth user without a profile.
+- [x] Also covered: name, `flag_url` and theme limits; one profile per auth user; deleting an auth user unlinks the profile; a user with messages can't be hard-deleted; invitation shape rules; `updated_at` bumps; function `SECURITY DEFINER`/`search_path`/EXECUTE grants.
+- [x] Local run: `tests/db/run_local.sh` passes. The migration was broken 16 ways on purpose, and the matching test caught each break.
 
 ### Tasks
-- [ ] Write SQL tests
-- [ ] Schema migration
-- [ ] Trigger and helper functions
-- [ ] README section: applying migrations and running SQL tests
-- [ ] ADRs for A1, A2, A3, A4, A10
+- [x] Write SQL tests
+- [x] Schema migration
+- [x] Trigger and helper functions
+- [x] README section: applying migrations and running SQL tests
+- [x] ADRs for A1, A2, A3, A4, A10 (ADR-007 to ADR-011), schema conventions (ADR-012)
+- [x] Local SQL test runner and Supabase stub (ADR-013)
 
 ### Notes
 - Depends on: none (can run in parallel with 001).
-- Migrations are applied by pasting into the SQL Editor. Keep them ordered, and idempotent where practical (`if not exists`).
+- **Before merging:** the Boss creates the dev project, applies `001_schema.sql`, and runs `tests/db/test_002_schema.sql` in the SQL Editor (the acceptance check, ADR-013).
+- Migrations are applied by pasting into the SQL Editor (SETUP_SUPABASE.md Step 6). Each is one transaction and re-runnable, and `run_local.sh` applies every migration twice to prove it.
+- Limits not in the spec were chosen here (name 100, email 254, `flag_url` 2048 and https-only, token format) and are listed in the migration header. The UI must mirror them.
+- "Not blank" is checked with the regex `[^[:space:]]`, because `btrim()` strips only spaces, not newlines.
+- Supabase's Security Advisor will flag "RLS enabled, no policy" on every table until ISSUE-003 lands. That's expected.
+- Tests insert throwaway rows into `auth.users`, which assumes the SQL Editor's `postgres` role may write there, as it historically can. If the dev run reports a permission error on `auth.users`, that's the cause.
 
 ---
 
@@ -254,6 +270,12 @@ Supabase exposes the database through a public API, so RLS is the real security 
 ### Notes
 - Depends on: 002.
 
+- From ISSUE-002: RLS is already **enabled** on all six tables with no policies. This issue adds the policies and keeps the tests that RLS is on.
+- Supabase grants ALL on new tables to `anon` and `authenticated` by default. Revoke what each role shouldn't have, e.g. `anon` everywhere, and column-level privileges on `users` so members can't select `email` (A5).
+- Identify the caller with `current_member_id()`, never `auth.uid()` (ADR-007). `users.id` is not the auth id.
+- Insert policies on `messages` must require `event_year = current_event_year()` (ADR-008).
+- Decide how a message by a removed (deactivated) author shows, when members can only read active profiles (ADR-010). For example, show "Former member".
+- The helpers are executable by `authenticated` and `service_role` only, not `anon`.
 ---
 
 ## [ISSUE-004] Flag storage bucket & policies
@@ -289,6 +311,7 @@ Create the `flags` bucket in SQL instead of dashboard clicks, so it's reproducib
 - Depends on: 002.
 - The bucket can't enforce the 1024×1024 limit; that's checked client-side in ISSUE-015.
 
+- To run `test_004` locally, extend `tests/db/supabase_stub.sql` with a minimal `storage` schema (`buckets`, `objects`, `storage.foldername()`). The stub mimics only what migrations use (ADR-013).
 ---
 
 ## [ISSUE-005] Seed data — admin & 2025 test data
@@ -333,6 +356,8 @@ Idempotent seed scripts: the admin account (all environments) and the 2025 test 
 - The claim trigger would stamp claims with `now()`. The seed must insert claims with historical dates and stop the trigger from double-inserting, e.g. insert users without a country first, or set `session_replication_role` inside the seed transaction.
 - Fake users have no auth accounts and can't log in. The admin links on first Google sign-in.
 
+- Approach for historical claim dates (ADR-011): insert each user *with* their country (the trigger creates the claim), then `update country_claims set claimed_at = …`. `session_replication_role` needs superuser, which the Supabase SQL Editor's `postgres` role is not. The seed runs as the table owner, so RLS doesn't get in the way.
+- Seeded users have `invitation_id` null and `auth_user_id` null.
 ---
 
 ## [ISSUE-006] Theme system (light / Game Night Mode)
@@ -624,6 +649,8 @@ Turn a signed-in auth user into a member, or reject them. This is where invitati
 ### Notes
 - Depends on: 003, 011.
 
+- Tokens are exactly 64 lowercase hex characters (`^[0-9a-f]{64}$`, enforced by a DB check; ADR-009). `parseInviteToken` should accept exactly that.
+- Match emails with `lower(email) = lower(<auth email>)`. The unique index is on `lower(email)`.
 ---
 
 ## [ISSUE-013] Sidebar — event date & yearly theme
@@ -939,6 +966,7 @@ Generate shareable invite links, list all invitations, revoke unused ones, and s
 ### Notes
 - Depends on: 020.
 
+- `invitations.token` is generated by its column default (244 random bits, ADR-009), so `create_link_invitation` just inserts and returns the token.
 ---
 
 ## [ISSUE-022] Email delivery mechanism
@@ -1093,6 +1121,7 @@ Set the current year's event date, theme title, and description.
 ### Notes
 - Depends on: 013, 020.
 
+- DB checks already enforce title 1–100 characters (not blank) and description ≤1000 (ISSUE-002). The form's constants must match.
 ---
 
 ## [ISSUE-026] Admin — message moderation
@@ -1301,6 +1330,7 @@ Stand up the production Supabase project and the Cloudflare Pages site on the cu
 - Depends on: 001–029.
 - The Boss performs the dashboard and DNS steps. Claude prepares the files, checklists, and doc updates.
 
+- Apply migrations per SETUP_SUPABASE.md Step 6. Before any invitations go out, the admin sets the event date and theme, which creates the first `event_settings` row. Rows created earlier would be stamped with the calendar year (ADR-008).
 ---
 
 ## [ISSUE-031] Supabase keep-alive
