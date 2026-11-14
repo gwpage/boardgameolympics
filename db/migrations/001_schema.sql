@@ -275,6 +275,120 @@ comment on column public.country_claims.event_year is
   'Addition (ADR-008): the event year of the claim. The feed shows only the current year.';
 
 -- -----------------------------------------------------------------------------
+-- Country-claim trigger (ADR-011)
+-- -----------------------------------------------------------------------------
+
+-- SECURITY DEFINER because members have no INSERT policy on country_claims:
+-- the trigger writes the claim on their behalf, and nothing else can.
+create or replace function public.record_country_claim()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  -- A claim is a change *to* a country. Clearing one (null) is not a claim,
+  -- and re-saving the same value is not news.
+  if new.country is not null
+     and (tg_op = 'INSERT' or new.country is distinct from old.country) then
+    insert into public.country_claims (user_id, country, event_year)
+    values (new.id, new.country, public.current_event_year());
+  end if;
+  return null;  -- AFTER trigger: the return value is ignored.
+end;
+$$;
+
+comment on function public.record_country_claim() is
+  'AFTER INSERT/UPDATE OF country trigger on users: logs a country_claims row whenever a user gets a new non-null '
+  'country, whether they change it themselves or the admin does. The only writer of country_claims (ADR-011).';
+
+drop trigger if exists users_record_country_claim on public.users;
+create trigger users_record_country_claim
+  after insert or update of country on public.users
+  for each row execute function public.record_country_claim();
+
+-- -----------------------------------------------------------------------------
+-- Membership helpers for RLS policies (002_rls.sql) and RPCs.
+--
+-- SECURITY DEFINER so they can read public.users even though RLS restricts
+-- what the caller sees. Without it, a policy on users that calls is_member()
+-- would recurse into itself. search_path is empty and every name is
+-- schema-qualified, so nobody can redirect them by creating look-alike
+-- objects in another schema.
+-- -----------------------------------------------------------------------------
+
+create or replace function public.current_member_id()
+returns uuid
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select u.id
+  from public.users u
+  where u.auth_user_id = auth.uid()
+    and u.is_active
+$$;
+
+comment on function public.current_member_id() is
+  'The caller''s profile id (public.users.id), or null if they are signed out, have no linked profile, or were '
+  'deactivated. Policies compare row owners against this rather than auth.uid(), because users.id is not the auth id '
+  '(ADR-007).';
+
+create or replace function public.is_member()
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select public.current_member_id() is not null
+$$;
+
+comment on function public.is_member() is
+  'True if the caller has an active profile linked to their Auth account. Signed-in strangers (no profile) and '
+  'deactivated users are not members and get no access.';
+
+create or replace function public.is_admin()
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1
+    from public.users u
+    where u.auth_user_id = auth.uid()
+      and u.is_active
+      and u.role = 'admin'
+  )
+$$;
+
+comment on function public.is_admin() is
+  'True if the caller is an active admin. A deactivated admin loses admin rights immediately.';
+
+-- -----------------------------------------------------------------------------
+-- Function privileges (least privilege).
+--
+-- Supabase grants EXECUTE on every new function to anon and authenticated,
+-- and Postgres grants it to PUBLIC. Take it back, then grant only what's
+-- needed: signed-in users need the helpers because RLS policies and column
+-- defaults run them as the caller. anon never needs them, and the trigger
+-- functions are run only by their triggers.
+-- -----------------------------------------------------------------------------
+
+revoke execute on function
+  public.current_event_year(), public.current_member_id(), public.is_member(), public.is_admin()
+  from public, anon;
+grant execute on function
+  public.current_event_year(), public.current_member_id(), public.is_member(), public.is_admin()
+  to authenticated, service_role;
+
+revoke execute on function public.record_country_claim(), public.set_updated_at()
+  from public, anon, authenticated;
+
+-- -----------------------------------------------------------------------------
 -- Deny by default: RLS on, no policies yet (see SECURITY in the header).
 -- -----------------------------------------------------------------------------
 
