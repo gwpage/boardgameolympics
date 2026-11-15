@@ -331,7 +331,8 @@ Create the `flags` bucket in SQL instead of dashboard clicks, so it's reproducib
 - The migration upserts the bucket, because **dev already had a hand-made `flags` bucket** (found 2026-11-15: a missing file returned "Object not found", not "Bucket not found"). Any hand-made policies on it must be deleted in the dashboard. test_004 fails and names any extra policy on `storage.objects`. The stub starts from a private, unlimited `flags` bucket, so every local run exercises the upsert.
 - Supabase blocks direct SQL DELETE on storage tables (the Storage API sets a session flag for its own deletes). test_004 sets `storage.allow_delete_query = 'true'`, the flag's name per Supabase's March 2026 storage update. The stub has the same guard.
 - Mutation check: 48/48 deliberate breaks of `003_storage.sql` were caught (each policy's bucket, admin and folder clauses, roles, bucket settings, upsert, re-runnability, an extra anon policy). The first pass caught 34/48: the SELECT policy hid broken UPDATE/DELETE policies, because Postgres applies it to any UPDATE/DELETE that reads a column. That led to the `[policy-alone]` checks and a README note.
-- Local: `tests/db/run_local.sh` PASS 3/3. The dev SQL Editor run is pending.
+- Local: `tests/db/run_local.sh` PASS 3/3.
+- Dev acceptance (2026-11-15): `003_storage.sql` applied cleanly. The first `test_004` run failed at `[policies]` and named five hand-made dashboard policies from the old Step 5: `insert 1m21l3_0`, `select 1m21l3_0` (granted to `public`, so anyone could list the bucket), and `update 1m21l3_0`, `_1`, `_2`. After the Boss dropped them, `test_004` passed. The delete checks passed too, so the `storage.allow_delete_query` flag works on dev.
 
 ---
 
