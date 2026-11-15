@@ -25,10 +25,18 @@
 --     and the helper functions read auth.uid(). auth.uid() below has the same
 --     body as Supabase's: it reads the `sub` claim from request.jwt.claims,
 --     which is how the tests simulate a signed-in user.
+--   * storage.buckets, storage.objects and storage.foldername(): the flags
+--     bucket and its policies (003_storage.sql) live there. Supabase grants
+--     the API roles ALL on both tables and turns RLS on with no policies, so
+--     the policies are the only gate; the stub does the same. Supabase also
+--     blocks DELETE on storage tables unless the session sets
+--     storage.allow_delete_query = 'true', which the Storage API does for
+--     its own deletes. The stub has the same guard, so a test that forgets to
+--     set the flag fails here too, not only on dev.
 --
--- Only the columns our tests touch exist on auth.users (id, email). Tests that
--- insert into auth.users must therefore name only those columns, which also
--- works on real Supabase, where every other column is nullable or defaulted.
+-- Only the columns our tests touch exist on auth.users (id, email) and on the
+-- storage tables. Tests must name only those columns, which also works on
+-- real Supabase, where every other column is nullable or defaulted.
 -- =============================================================================
 
 \set ON_ERROR_STOP on
@@ -103,3 +111,75 @@ $$;
 
 grant execute on function auth.uid(), auth.role(), auth.jwt()
   to postgres, anon, authenticated, service_role;
+
+-- storage schema -----------------------------------------------------------------
+-- On Supabase these belong to supabase_storage_admin, and the postgres role
+-- can still insert buckets and create policies on storage.objects (that's how
+-- Supabase's docs create both). Here postgres simply owns them, which allows
+-- the same two things.
+
+create schema storage;
+grant usage on schema storage to anon, authenticated, service_role;
+
+create table storage.buckets (
+  id                 text primary key,
+  name               text not null unique,
+  public             boolean default false,
+  file_size_limit    bigint,
+  allowed_mime_types text[],
+  created_at         timestamptz default now(),
+  updated_at         timestamptz default now()
+);
+
+create table storage.objects (
+  id         uuid primary key default gen_random_uuid(),
+  bucket_id  text references storage.buckets (id),
+  name       text,
+  owner_id   text,
+  metadata   jsonb,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now(),
+  unique (bucket_id, name)
+);
+
+alter table storage.buckets owner to postgres;
+alter table storage.objects owner to postgres;
+alter table storage.buckets enable row level security;
+alter table storage.objects enable row level security;
+grant all on storage.buckets, storage.objects to anon, authenticated, service_role;
+
+-- Same body as Supabase's: every path segment except the last (the file name).
+-- 'abc/123.png' gives {abc}; a file at the bucket root gives {}.
+create function storage.foldername(name text)
+returns text[]
+language plpgsql
+immutable
+as $$
+declare
+  _parts text[];
+begin
+  select string_to_array(name, '/') into _parts;
+  return _parts[1:array_length(_parts, 1) - 1];
+end
+$$;
+
+grant execute on function storage.foldername(text) to postgres, anon, authenticated, service_role;
+
+-- Supabase's statement-level guard against direct SQL deletes, which would
+-- leave the files behind in object storage.
+create function storage.protect_delete()
+returns trigger
+language plpgsql
+as $$
+begin
+  if coalesce(current_setting('storage.allow_delete_query', true), '') <> 'true' then
+    raise exception 'Direct deletion from storage tables is not allowed. Use the Storage API instead.';
+  end if;
+  return null;
+end
+$$;
+
+create trigger protect_buckets_delete before delete on storage.buckets
+  for each statement execute function storage.protect_delete();
+create trigger protect_objects_delete before delete on storage.objects
+  for each statement execute function storage.protect_delete();
