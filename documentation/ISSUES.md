@@ -290,7 +290,7 @@ Supabase exposes the database through a public API, so RLS is the real security 
 ## [ISSUE-004] Flag storage bucket & policies
 
 - **Type:** Feature
-- **Status:** Open
+- **Status:** In Progress
 - **Branch:** `issue/004-flag-storage`
 - **Spec Reference:** SPEC.md § File Storage, § Optional Fields; SETUP_SUPABASE.md Step 5
 - **PR:** —
