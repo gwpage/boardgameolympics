@@ -206,7 +206,8 @@ $$;
 --   * profiles: admin (role admin), a, b, former (deactivated)
 --   * flag objects: obj_a in a's folder, obj_b in b's folder,
 --     obj_former in former's folder
---   * a second bucket, t004-other, to prove the policies cover flags only
+--   * a second bucket, t004-other, to prove the policies cover flags only,
+--     holding obj_b_other in a folder named after b
 -- Folders are named after profile ids (users.id), not auth ids (ADR-007).
 -- -----------------------------------------------------------------------------
 do $$
@@ -247,6 +248,9 @@ begin
   perform pg_temp.remember('obj_former', new_id);
 
   insert into storage.buckets (id, name, public) values ('t004-other', 't004-other', false);
+  insert into storage.objects (bucket_id, name) values ('t004-other', pg_temp.fx('b') || '/t004-b-other.png')
+  returning id into new_id;
+  perform pg_temp.remember('obj_b_other', new_id);
 end
 $$;
 
@@ -379,6 +383,8 @@ begin
     format('select 1 from storage.objects where id = %L', pg_temp.fx('obj_a')), 1);
   perform pg_temp.expect_rows('member cannot see other object', pg_temp.fx('a_auth'),
     format('select 1 from storage.objects where id = %L', pg_temp.fx('obj_b')), 0);
+  perform pg_temp.expect_rows('member cannot see other bucket', pg_temp.fx('b_auth'),
+    format('select 1 from storage.objects where id = %L', pg_temp.fx('obj_b_other')), 0);
   perform pg_temp.expect_rows('member lists only own folder', pg_temp.fx('a_auth'),
     format($q$select 1 from storage.objects where bucket_id = 'flags' and id in (%L, %L, %L)$q$,
            pg_temp.fx('obj_a'), pg_temp.fx('obj_b'), pg_temp.fx('obj_former')), 1);
@@ -435,6 +441,8 @@ begin
   perform pg_temp.expect_rows('admin sees every folder', pg_temp.fx('admin_auth'),
     format('select 1 from storage.objects where id in (%L, %L, %L)',
            pg_temp.fx('obj_a'), pg_temp.fx('obj_b'), pg_temp.fx('obj_former')), 3);
+  perform pg_temp.expect_rows('admin cannot see other bucket', pg_temp.fx('admin_auth'),
+    format('select 1 from storage.objects where id = %L', pg_temp.fx('obj_b_other')), 0);
   perform pg_temp.expect_rows('admin insert member folder', pg_temp.fx('admin_auth'),
     pg_temp.upload_sql('flags', pg_temp.fx('a') || '/t004-by-admin.png'), 1);
   perform pg_temp.expect_rows('admin update member object', pg_temp.fx('admin_auth'),
@@ -447,6 +455,82 @@ begin
 end
 $$;
 rollback to savepoint admin;
+
+-- -----------------------------------------------------------------------------
+-- [policy-alone] The UPDATE and DELETE policies hold on their own, not only
+-- because of the SELECT policy.
+--
+-- Postgres also applies the SELECT policy to an UPDATE or DELETE whose WHERE
+-- (or RETURNING) reads a column. The Storage API always writes that way, and
+-- so do the checks above, so they can't tell a broken UPDATE or DELETE policy
+-- from a working one. If the SELECT policy were ever widened (say, to let
+-- members browse every flag), the other policies would have to stand alone.
+--
+-- These statements have no WHERE and read no column, so only the UPDATE or
+-- DELETE policy limits them. They can touch every row the caller may write,
+-- real flags included, so each one runs inside its own savepoint and is
+-- rolled back straight away. b's flags folder holds only obj_b (b is a fresh
+-- profile), which pins the expected row counts.
+-- -----------------------------------------------------------------------------
+savepoint alone;
+do $$
+begin
+  perform pg_temp.expect_rows('delete alone: member', pg_temp.fx('b_auth'), 'delete from storage.objects', 1);
+  assert pg_temp.objects_left(pg_temp.fx('obj_b')) = 0, '[delete alone: member] obj_b is still there';
+  assert pg_temp.objects_left(pg_temp.fx('obj_a'), pg_temp.fx('obj_former'), pg_temp.fx('obj_b_other')) = 3,
+    '[delete alone: member] deleted objects outside their own flags folder';
+end
+$$;
+rollback to savepoint alone;
+
+do $$
+begin
+  perform pg_temp.exec_as(pg_temp.fx('admin_auth'), 'delete from storage.objects');
+  assert pg_temp.objects_left(pg_temp.fx('obj_a'), pg_temp.fx('obj_b'), pg_temp.fx('obj_former')) = 0,
+    '[delete alone: admin] could not delete every member''s flag';
+  assert pg_temp.objects_left(pg_temp.fx('obj_b_other')) = 1, '[delete alone: admin] deleted outside the flags bucket';
+end
+$$;
+rollback to savepoint alone;
+
+do $$
+begin
+  perform pg_temp.expect_rows('update alone: member', pg_temp.fx('b_auth'),
+    $q$update storage.objects set metadata = '{"t004": "touched"}'$q$, 1);
+  assert (select count(*) from storage.objects
+          where id in (pg_temp.fx('obj_a'), pg_temp.fx('obj_former'), pg_temp.fx('obj_b_other'))
+            and metadata @> '{"t004": "touched"}') = 0,
+    '[update alone: member] changed objects outside their own flags folder';
+end
+$$;
+rollback to savepoint alone;
+
+do $$
+begin
+  perform pg_temp.exec_as(pg_temp.fx('admin_auth'), $q$update storage.objects set metadata = '{"t004": "touched"}'$q$);
+  assert (select count(*) from storage.objects
+          where id in (pg_temp.fx('obj_a'), pg_temp.fx('obj_b'), pg_temp.fx('obj_former'))
+            and metadata @> '{"t004": "touched"}') = 3,
+    '[update alone: admin] could not change every member''s flag';
+  assert (select metadata is null from storage.objects where id = pg_temp.fx('obj_b_other')),
+    '[update alone: admin] changed an object outside the flags bucket';
+end
+$$;
+rollback to savepoint alone;
+
+-- WITH CHECK alone: the moved row must still be in the flags bucket, and,
+-- for a member, in their own folder. Each of these fails on its first row.
+do $$
+begin
+  perform pg_temp.expect_error_as('update alone: member moves into other folder', pg_temp.fx('b_auth'),
+    format('update storage.objects set name = %L', pg_temp.fx('a') || '/t004-moved.png'));
+  perform pg_temp.expect_error_as('update alone: member moves to other bucket', pg_temp.fx('b_auth'),
+    $q$update storage.objects set bucket_id = 't004-other'$q$);
+  perform pg_temp.expect_error_as('update alone: admin moves to other bucket', pg_temp.fx('admin_auth'),
+    $q$update storage.objects set bucket_id = 't004-other'$q$);
+end
+$$;
+rollback to savepoint alone;
 
 -- -----------------------------------------------------------------------------
 -- [bucket-locked] Nobody can loosen the limits through the API. This guards a

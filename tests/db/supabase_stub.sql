@@ -179,6 +179,12 @@ begin
 end
 $$;
 
+-- A flags bucket made by hand, the way the old click-through setup guide did
+-- it: private, with no size or type limits. The dev project has one like it,
+-- so 003_storage.sql must correct an existing bucket, not just create a new
+-- one. Starting from this makes every local run check that.
+insert into storage.buckets (id, name, public) values ('flags', 'flags', false);
+
 create trigger protect_buckets_delete before delete on storage.buckets
   for each statement execute function storage.protect_delete();
 create trigger protect_objects_delete before delete on storage.objects
