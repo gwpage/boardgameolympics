@@ -290,7 +290,7 @@ Supabase exposes the database through a public API, so RLS is the real security 
 ## [ISSUE-004] Flag storage bucket & policies
 
 - **Type:** Feature
-- **Status:** In Progress
+- **Status:** Complete
 - **Branch:** `issue/004-flag-storage`
 - **Spec Reference:** SPEC.md § File Storage, § Optional Fields; SETUP_SUPABASE.md Step 5
 - **PR:** —
@@ -299,28 +299,40 @@ Supabase exposes the database through a public API, so RLS is the real security 
 Create the `flags` bucket in SQL instead of dashboard clicks, so it's reproducible, with server-side size and type limits and owner-scoped write policies.
 
 ### Acceptance Criteria
-- [ ] `db/migrations/003_storage.sql` creates a public `flags` bucket with `file_size_limit` = 2 MB and `allowed_mime_types` = `image/jpeg`, `image/png`.
-- [ ] Anyone can read. Members can insert, update, and delete only under `{their member id}/`. Admin can write anywhere. anon cannot write.
-- [ ] SETUP_SUPABASE.md Step 5 replaced with "run this migration".
+- [x] `db/migrations/003_storage.sql` creates a public `flags` bucket with `file_size_limit` = 2 MB and `allowed_mime_types` = `image/jpeg`, `image/png`.
+- [x] Anyone can read. Members can insert, update, and delete only under `{their member id}/`. Admin can write anywhere. anon cannot write.
+- [x] SETUP_SUPABASE.md Step 5 replaced with "run this migration".
 
 ### Tests
 - **Test file(s):** `tests/db/test_004_storage.sql`
-- [ ] Bucket exists, is public, has a 2,097,152-byte limit, and allows exactly jpeg and png.
-- [ ] A member can insert into their own folder but not another member's.
-- [ ] A member can delete their own object but not another member's.
-- [ ] Admin can write into any member's folder.
-- [ ] anon insert fails.
+- [x] Bucket exists, is public, has a 2,097,152-byte limit, and allows exactly jpeg and png.
+- [x] A member can insert into their own folder but not another member's.
+- [x] A member can delete their own object but not another member's.
+- [x] Admin can write into any member's folder.
+- [x] anon insert fails.
+- [x] Added: the policies on `storage.objects` are exactly the four from 003, and RLS is on.
+- [x] Added: anon can't list, change or delete. Signed-in non-members and deactivated members can't write, even to "their" folder.
+- [x] Added: members can't upload to the bucket root or another bucket, can't list or change others' files, and can't move a file into another folder.
+- [x] Added: the admin can't write outside `flags`. Each UPDATE/DELETE policy holds on its own (`[policy-alone]`). No API role can create a bucket or loosen the limits.
 
 ### Tasks
-- [ ] Write SQL tests
-- [ ] Storage migration
-- [ ] Update SETUP_SUPABASE.md
+- [x] Write SQL tests
+- [x] Storage migration
+- [x] Update SETUP_SUPABASE.md
 
 ### Notes
 - Depends on: 002.
 - The bucket can't enforce the 1024×1024 limit; that's checked client-side in ISSUE-015.
-
 - To run `test_004` locally, extend `tests/db/supabase_stub.sql` with a minimal `storage` schema (`buckets`, `objects`, `storage.foldername()`). The stub mimics only what migrations use (ADR-013).
+- As built (ADR-018):
+  - "Anyone can read" is met by the bucket's **public URLs**, which need no policy. Nobody gets a bucket-wide SELECT policy, so the bucket can't be listed. Members can list their own folder, which the Storage API needs in order to remove or overwrite; the admin can list every folder.
+  - Folders are named after `users.id`, not the auth id, and checked against `current_member_id()`. So deactivated users and signed-in strangers can't write anywhere.
+  - Storage table grants are left to Supabase (an exception to ADR-015); RLS is the boundary there.
+- The migration upserts the bucket, because **dev already had a hand-made `flags` bucket** (found 2026-11-15: a missing file returned "Object not found", not "Bucket not found"). Any hand-made policies on it must be deleted in the dashboard. test_004 fails and names any extra policy on `storage.objects`. The stub starts from a private, unlimited `flags` bucket, so every local run exercises the upsert.
+- Supabase blocks direct SQL DELETE on storage tables (the Storage API sets a session flag for its own deletes). test_004 sets `storage.allow_delete_query = 'true'`, the flag's name per Supabase's March 2026 storage update. The stub has the same guard.
+- Mutation check: 48/48 deliberate breaks of `003_storage.sql` were caught (each policy's bucket, admin and folder clauses, roles, bucket settings, upsert, re-runnability, an extra anon policy). The first pass caught 34/48: the SELECT policy hid broken UPDATE/DELETE policies, because Postgres applies it to any UPDATE/DELETE that reads a column. That led to the `[policy-alone]` checks and a README note.
+- Local: `tests/db/run_local.sh` PASS 3/3. The dev SQL Editor run is pending.
+
 ---
 
 ## [ISSUE-005] Seed data — admin & 2025 test data
@@ -770,6 +782,11 @@ Upload, replace, or remove your flag. It becomes your avatar throughout the site
 
 ### Notes
 - Depends on: 004, 014.
+- From ISSUE-004 (ADR-018):
+  - Bucket `flags`. The object path is `{member_id}/{epoch-ms}.{ext}`, where `member_id` is `users.id` (what `current_member_id()` returns), **not** the auth user id. Any other path is refused.
+  - Pass `contentType` explicitly (`image/jpeg` or `image/png`). The bucket checks the declared type and the 2 MB size, and the Storage API rejects anything else with an error. Validate first anyway, for a friendly message.
+  - Timestamped names mean no `upsert`. Order: upload the new file, then update `flag_url` to `getPublicUrl(path)` (an https URL, which satisfies `users_flag_url_check`), then `remove()` the old file. Get the old path by stripping the public-URL prefix up to `/flags/`. If removing fails, the only cost is an orphaned file.
+  - `remove()` works only in your own folder (the admin's: any folder). A file the caller may not delete is skipped, not reported as an error, so check the returned list if it matters.
 
 ---
 
@@ -1113,6 +1130,7 @@ View, edit, register on behalf of, and remove users.
 ### Notes
 - Depends on: 015, 020.
 - From ISSUE-003: `admin_list_users()` already exists. It's admin-checked, returns every column including email and `is_active`, and can be filtered and sorted through PostgREST. test_003 covers "returns emails to the admin, denied to members"; this issue only needs to extend it. The admin edits name, country, flag and RSVP with plain updates, but `role`, `email`, `is_active`/`deactivated_at` and inserts are refused by column grants, so `admin_create_user`, deactivate/reactivate and any role change must be `SECURITY DEFINER` RPCs.
+- From ISSUE-004: the storage policies already let the admin upload, replace and delete files in any member's folder (`flags/{that member's users.id}/…`). Reuse ISSUE-015's component with the target member's id. No new policy is needed.
 
 ---
 
@@ -1262,6 +1280,7 @@ One admin action that archives the past year and resets the site for the next ev
 - Depends on: 016, 018, 021.
 - Browsing archived years is out of scope (SPEC § Yearly Lifecycle).
 - From ISSUE-003: the admin can insert the new year's `event_settings` row and clear profiles directly, but those are separate requests that can half-fail. Prefer one `SECURITY DEFINER`, admin-checked RPC that does it all in one transaction.
+- From ISSUE-004: old flag files stay in each member's folder after the reset. The folder policies still let that member, or the admin, delete them, so the archive of flag files is best-effort, not protected. ISSUE-015's "delete the previous file" step won't touch them, because `flag_url` is null after the reset.
 
 ---
 
