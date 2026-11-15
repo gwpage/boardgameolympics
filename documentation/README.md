@@ -128,6 +128,7 @@ The stub only imitates Supabase, so the Supabase run is what counts. If the two 
 - Start every assertion message with a `[label]`, so a failure points straight at the check.
 - Use emails at `example.test` (a reserved domain) with a per-file prefix such as `t002-`, so test rows never collide with real or seeded users. Never assume a table is empty.
 - Wrap destructive checks (deleting rows other tests rely on) in `savepoint …; … rollback to savepoint …;`.
+- To test what an API caller may do, copy the helpers at the top of `tests/db/test_003_rls.sql`. `exec_as`, `value_as`, `expect_rows` and `expect_error_as` run one statement the way PostgREST would, as `anon` or as a signed-in `authenticated` user, then switch back to `postgres`. A refused GRANT and a row rejected by a policy both raise SQLSTATE `42501`. A blocked UPDATE or DELETE raises nothing and affects 0 rows, so assert the row count.
 - Add the new file to the Tests section of its issue in ISSUES.md.
 
 ### Applying migrations
