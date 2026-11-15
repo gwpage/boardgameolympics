@@ -293,7 +293,7 @@ Supabase exposes the database through a public API, so RLS is the real security 
 - **Status:** Complete
 - **Branch:** `issue/004-flag-storage`
 - **Spec Reference:** SPEC.md § File Storage, § Optional Fields; SETUP_SUPABASE.md Step 5
-- **PR:** —
+- **PR:** #6
 
 ### Description
 Create the `flags` bucket in SQL instead of dashboard clicks, so it's reproducible, with server-side size and type limits and owner-scoped write policies.
