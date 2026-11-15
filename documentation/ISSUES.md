@@ -284,7 +284,7 @@ Supabase exposes the database through a public API, so RLS is the real security 
 - Removed authors: their messages stay, and members see "Former member" (ADR-017, ADR-010 amended).
 - `anon` gets *permission denied* on every table rather than zero rows: it has no grants at all, which is stricter than the original test wording.
 - Local run: `tests/db/run_local.sh` passes (test_002 + test_003). The migration was broken 25 ways on purpose (dropped revoke, extra column grants, loosened policies, an unchecked RPC, a wider RPC result, and so on), and a named check caught every one.
-- **Before merging:** the Boss applies `002_rls.sql` on dev and runs `tests/db/test_003_rls.sql` (and re-runs `test_002_schema.sql`) in the SQL Editor (ADR-013).
+- **Dev acceptance (2026-11-15):** the Boss applied `002_rls.sql` on dev. `test_002_schema.sql` and `test_003_rls.sql` both pass in the SQL Editor (ADR-013).
 ---
 
 ## [ISSUE-004] Flag storage bucket & policies
