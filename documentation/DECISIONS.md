@@ -188,7 +188,7 @@ Format: `~/.claude/rules/quality.md`. Open work that implements these lives in [
   - Every foreign key to `users` is `on delete restrict`. A hard delete of a user with any history fails loudly instead of cascading.
 - **Consequences:**
   - The admin can undo a removal by reactivating the profile.
-  - The removed user's messages stay on the board. How the board shows an author whose profile members can no longer read is decided in ISSUE-003 and ISSUE-016.
+  - The removed user's messages stay on the board. Members can no longer read the author's profile, so the board shows "Former member" (decided in ISSUE-003, ADR-017; amended 2026-11-15).
   - Tidying up test users means deactivating them, or deleting them only when they have no history.
 
 ---
@@ -268,3 +268,73 @@ Format: `~/.claude/rules/quality.md`. Open work that implements these lives in [
   - Supabase's gateway check, `verify_jwt`, doesn't understand the new keys, and Supabase now recommends checking callers inside the function. The `invite-user` function has to verify the caller's access token and admin role itself anyway (ADR-002). ISSUE-022 decides the `verify_jwt` setting.
   - Supabase's docs suggest an `@supabase/server` helper for Edge Functions. It would be a new dependency, so it is adopted only if ISSUE-022 justifies it.
   - User access tokens are still signed by the legacy JWT secret. Moving to JWT signing keys is a separate migration and isn't part of this decision.
+
+---
+
+## [ADR-015] Explicit table grants; column-level grants hide email; admins read emails through an RPC
+
+- **Date:** 2026-11-15
+- **Status:** Accepted
+- **Context:**
+  - Supabase serves every table in `public` through its REST API, and the publishable key is public. GRANTs and RLS are the only security boundary.
+  - ISSUE-003 assumed Supabase grants ALL on new tables to `anon` and `authenticated`. On our dev project, `information_schema.role_table_grants` showed only TRUNCATE, REFERENCES and TRIGGER for both roles, with no SELECT, INSERT, UPDATE or DELETE. Projects created at different times evidently get different defaults.
+  - The spec says members "can read all profiles", but that would expose every email address (assumption A5).
+  - Admins and members both run as `authenticated`. Postgres can grant a column to a role, but not to some users of a role.
+- **Decision:**
+  - `002_rls.sql` first **revokes all** privileges on every table from PUBLIC, `anon`, `authenticated` and `service_role`, then grants exactly what each role needs. `tests/db/test_003_rls.sql` compares the complete grant list with the expected one, so a missing or extra grant fails the test.
+  - **`anon`** gets nothing on any table. Its only door is `get_public_event_info()` (ADR-016).
+  - **`service_role`** (the secret key, server side only) gets SELECT, INSERT, UPDATE and DELETE on every table, but not TRUNCATE.
+  - **`authenticated`** gets table-level grants where every column is fine to expose, and column-level grants where it isn't:
+    - `users`: SELECT only `id, name, country, flag_url, rsvp, role, created_at`, and UPDATE only `name, country, flag_url, rsvp`. No INSERT: profiles are created by `SECURITY DEFINER` RPCs (ISSUE-012, ISSUE-024).
+    - `messages` and `message_likes`: INSERT only the author/liker and content columns, so `event_year` and `created_at` always come from defaults. No UPDATE.
+    - `invitations`: INSERT only `type, email, max_uses`, so the database owns the token, status, use count and year. UPDATE only `status, revoked_at`. No DELETE.
+    - `event_settings`: INSERT `year, event_date, theme_title, theme_desc`. UPDATE everything except `year`. No DELETE.
+    - `country_claims`: SELECT only. The trigger is the only writer (ADR-011).
+  - The admin reads emails and the account-management columns through **`admin_list_users()`**, a `SECURITY DEFINER` function that raises 42501 unless `is_admin()`.
+- **Consequences:**
+  - The same migration gives the same result on any project, whatever its defaults, including a prod project created later.
+  - A forged `event_year`, `created_at`, invitation token or use count is refused by the database, not just by the UI.
+  - **Clients must name columns when reading `users`.** PostgREST's `select=*` asks for every column, and Postgres refuses the whole query. Embeds must list columns too, e.g. `author:users(id,name,flag_url)`.
+  - A member's own email isn't readable from `users` either. The profile page shows the email from the Auth session (ISSUE-014).
+  - Admin changes to `role`, `email`, `is_active` and links go through RPCs that can enforce rules such as "an admin can't deactivate themselves" (ISSUE-024). A plain UPDATE of those columns is refused, even for the admin.
+  - Supabase's Security Advisor may flag `admin_list_users()` as a `SECURITY DEFINER` function exposed through the API. That is intended: it checks the caller itself.
+
+---
+
+## [ADR-016] Signed-out visitors get the event date from a narrow RPC
+
+- **Date:** 2026-11-15
+- **Status:** Accepted
+- **Context:** The public landing page shows the event date, and the keep-alive ping (ADR-004) needs something anonymous to call. But `anon` can read no table (ADR-015), and opening `event_settings` to `anon` would also expose the theme and every past year (assumption A6).
+- **Decision:**
+  - `get_public_event_info()` returns `TABLE(year integer, event_date date)`: one row for the current event (the highest `year`), or no row before any event exists.
+  - It is `SECURITY DEFINER` with an empty `search_path`, `stable`, and executable by `anon` and `authenticated` only.
+  - A test pins the result type, so adding a column needs a deliberate test change.
+- **Consequences:**
+  - The landing page (ISSUE-010) makes exactly one anonymous call, and shows "Date TBA" on no row or an error.
+  - Anything else the landing page shows (location, description) is static copy, not database data.
+
+---
+
+## [ADR-017] Policy model: membership gate, current-year archive, admin-only deletes, "Former member"
+
+- **Date:** 2026-11-15
+- **Status:** Accepted
+- **Context:**
+  - RLS must turn invitation-only access into concrete per-row rules.
+  - The spec doesn't say whether members may delete their own messages (assumption A7).
+  - Archived years must vanish from the app without being deleted (ADR-008).
+  - A removed user's messages stay (ADR-010), but members can only see active profiles (A5).
+- **Decision:**
+  - **Membership gate.** Every policy starts from `is_member()` or `is_admin()`, both of which require an *active* profile linked to the caller's Auth account. Signed-in strangers and deactivated users see nothing and change nothing.
+  - **Ownership** is always `… = current_member_id()`, never `auth.uid()` (ADR-007).
+  - **Current year only.** `messages` and `country_claims` are readable only where `event_year = current_event_year()`, for the admin too. Likes are readable and addable only when their message is readable: the policy's `EXISTS` subquery on `messages` runs under messages' own policy. Earlier years stay in the database and are reachable only from the Supabase dashboard. Invitations aren't year-filtered (the admin sees all; the UI filters), and neither are `event_settings`, which members read for the sidebar.
+  - **Deletes (A7).** Only the admin deletes messages, including a member's own. Members delete only their own likes. Nobody deletes profiles, invitations, claims or event settings through the API.
+  - **Profiles.** Members read active profiles only. The admin also reads deactivated ones.
+  - **Removed authors.** A message by a deactivated author stays visible to members, but joining it to `users` returns no author. The UI shows **"Former member"** with the default avatar. The admin still sees the real name.
+  - Policies call helpers as `(select public.is_member())`, so Postgres evaluates each one once per statement rather than once per row.
+- **Consequences:**
+  - The message board, activity feed and likes need no year filter for correctness; RLS supplies it. They should still filter on `event_year` so queries use the `(event_year, created_at desc, id desc)` indexes.
+  - The board (ISSUE-016) and activity feed (ISSUE-018) must use a **left** join or embed to the author, and render a null author as "Former member". An inner join would make removed users' items disappear.
+  - Like counts include likes from removed users, but "who liked it" can't name them (ISSUE-017).
+  - Members can't tidy up their own posts; they ask the host. That matches the spec's moderation model.

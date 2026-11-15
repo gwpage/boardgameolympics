@@ -168,20 +168,33 @@ The schema lives in `db/migrations/`, as numbered SQL files. Apply them **in ord
 
 Each migration runs in a single transaction, so it applies completely or not at all. Re-running one is harmless.
 
-**Check it worked (dev project only):** paste and run `tests/db/test_002_schema.sql`. It changes nothing (everything is rolled back) and passes with "Success. No rows returned". See the [developer guide](./README.md#database-tests-sql) for details.
+**Check it worked (dev project only):** paste and run each test file in `tests/db/` in number order (`test_002_schema.sql`, `test_003_rls.sql`, …). They change nothing (everything is rolled back), and each passes with "Success. No rows returned". See the [developer guide](./README.md#database-tests-sql) for details.
 
 ### Enable Row Level Security (RLS)
 
-Supabase exposes your database via a public REST API, so **Row Level Security is essential**.
+Supabase exposes your database via a public REST API, so **table privileges and Row Level Security are the real security boundary**. The publishable key in the browser is not a secret.
 
-`001_schema.sql` turns RLS on for every table with **no** policies, so the public API can read and write nothing until the policies migration (ISSUE-003) is applied. The intended access rules, refined in ISSUE-003, are:
+- `001_schema.sql` turns RLS on for every table, with no policies.
+- `002_rls.sql` adds the privileges and policies. It revokes every privilege from the API roles, then grants back exactly what each one needs. Supabase's default privileges for new tables differ between projects, so nothing relies on them ([ADR-015](./DECISIONS.md)).
 
-- **Users**: Users can read all profiles, but only update their own (name, country, flag, RSVP). Admins can update any user.
-- **Invitations**: Only admins can create, read, and revoke invitations.
-- **Messages**: Authenticated users can read all and create their own. Admins can delete any.
-- **Country Claims**: Authenticated users can read all. Nobody inserts them directly: a database trigger records a claim whenever a user's country changes ([ADR-011](./DECISIONS.md)).
-- **Message Likes**: Authenticated users can read all. Users can insert and delete their own likes (toggle behavior).
-- **Event Settings**: All authenticated users can read (needed to display the sidebar). Only admins can update.
+The access rules (details in [ADR-015 – ADR-017](./DECISIONS.md) and the comments in `002_rls.sql`):
+
+| Who | Can do |
+|-----|--------|
+| **Signed out** (`anon`) | Nothing on any table. Can call `get_public_event_info()`, which returns only the current event's year and date. |
+| **Signed in, not a member** (never invited, or deactivated) | Nothing. Sees no rows anywhere. |
+| **Member** | Read the name, country, flag, RSVP and role of active members, but **not emails**. Update their own name, country, flag and RSVP. Read and post this year's messages, as themselves. Like and unlike as themselves. Read this year's country claims and the event settings. |
+| **Admin** | Everything a member can, plus: see deactivated profiles, and every email via `admin_list_users()`. Edit anyone's name, country, flag and RSVP. Read, create and revoke invitations. Delete any message. Create and edit event settings. |
+
+Nobody can, through the API:
+- edit a message, or delete one unless they're the admin;
+- write a country claim (a trigger records them, [ADR-011](./DECISIONS.md));
+- delete a profile, invitation or event settings;
+- read earlier years' messages and claims (they stay in the database as the archive, visible in the dashboard).
+
+Role, email and deactivation changes go through admin RPCs (ISSUE-024).
+
+**Client rule:** reads of `users` must list their columns (`id, name, country, flag_url, rsvp, role, created_at`). `select=*` asks for the hidden email column too, so it is refused.
 
 ---
 

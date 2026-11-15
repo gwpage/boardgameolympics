@@ -13,10 +13,14 @@
 --     superuser, but it owns the public schema, can bypass RLS, and can
 --     `set role` to the API roles. Tests that run as a non-superuser catch
 --     permission mistakes that a superuser would silently skip past.
---   * Default privileges: on Supabase, every new table and function in public
---     is granted to anon/authenticated/service_role automatically. Migrations
---     must revoke what those roles shouldn't have, so the stub copies that
---     default. Otherwise a missing REVOKE would look fine locally.
+--   * Default privileges: Supabase grants new tables and functions in public
+--     to anon/authenticated/service_role automatically, but how much varies by
+--     project. Older projects grant ALL. Our dev project (checked 2026-11-15)
+--     grants only TRUNCATE, REFERENCES and TRIGGER on tables. The stub copies
+--     the most generous default, ALL, so a missing REVOKE fails locally
+--     instead of hiding behind a stingier default. Migrations revoke
+--     everything and then grant exactly what's needed (002_rls.sql, ADR-015),
+--     so they end up the same under either default.
 --   * auth.users and auth.uid(): users.auth_user_id references auth.users,
 --     and the helper functions read auth.uid(). auth.uid() below has the same
 --     body as Supabase's: it reads the `sub` claim from request.jwt.claims,

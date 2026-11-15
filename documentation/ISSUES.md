@@ -225,58 +225,66 @@ SQL migrations for the six tables in the spec. Also adds the columns the spec im
 ## [ISSUE-003] Row Level Security policies
 
 - **Type:** Feature
-- **Status:** Open
+- **Status:** Complete
 - **Branch:** `issue/003-rls-policies`
 - **Spec Reference:** SETUP_SUPABASE.md § Enable Row Level Security; SPEC.md § Invitation-Only Access, § Admin Panel
-- **PR:** —
+- **PR:** #5
 
 ### Description
 Supabase exposes the database through a public API, so RLS is the real security boundary. Lock every table down to exactly what each role needs.
 
 ### Acceptance Criteria
-- [ ] RLS enabled on all six tables. `anon` can neither read nor write any table.
-- [ ] `users`:
+- [x] RLS enabled on all six tables. `anon` can neither read nor write any table.
+- [x] `users`:
   - Active members can read member-safe columns of active profiles, which **excludes email** (A5).
   - A member can update only their own `name`, `country`, `flag_url`, `rsvp`, and never `role`, `email`, `is_active`, or `auth_user_id`.
-  - Admin can read and update everything.
-- [ ] `invitations`: admin only.
-- [ ] `messages`: members read the current year and insert only as themselves. Only admin can delete (A7). No updates.
-- [ ] `message_likes`: members read; insert and delete only their own.
-- [ ] `country_claims`: members read. No client inserts; the trigger writes them (A10).
-- [ ] `event_settings`: members read; admin inserts and updates.
-- [ ] Deactivated members and authenticated users without a profile are denied everything.
-- [ ] `get_public_event_info()` is callable by `anon` and returns only year and event date (A6).
+  - Admin can read and update everything. *As built (ADR-015):* the admin reads every row, and every column through `admin_list_users()`, because column grants apply to the whole `authenticated` role. The admin updates any row's name, country, flag and RSVP directly. `role`, `email` and activation change through RPCs (ISSUE-012, ISSUE-024), never a plain UPDATE.
+- [x] `invitations`: admin only.
+- [x] `messages`: members read the current year and insert only as themselves. Only admin can delete (A7). No updates.
+- [x] `message_likes`: members read; insert and delete only their own.
+- [x] `country_claims`: members read. No client inserts; the trigger writes them (A10).
+- [x] `event_settings`: members read; admin inserts and updates.
+- [x] Deactivated members and authenticated users without a profile are denied everything.
+- [x] `get_public_event_info()` is callable by `anon` and returns only year and event date (A6).
 
 ### Tests
 - **Test file(s):** `tests/db/test_003_rls.sql`
-- [ ] anon: zero rows from every table; every insert fails.
-- [ ] anon: `get_public_event_info()` returns the date and no other fields.
-- [ ] Auth user without a profile: zero rows everywhere.
-- [ ] Member: can read other profiles but cannot read their email.
-- [ ] Member: cannot update another user, or set their own `role`/`is_active`.
-- [ ] Member: cannot read invitations.
-- [ ] Member: can post as self; cannot post as another user.
-- [ ] Member: cannot delete any message, own included. Admin can delete any.
-- [ ] Member: can like and unlike; cannot delete another user's like.
-- [ ] Member: cannot insert into `country_claims` directly.
-- [ ] Member: cannot update `event_settings`; admin can.
-- [ ] Deactivated member: zero rows everywhere.
+- [x] Grants: `anon`, `authenticated`, `service_role` and PUBLIC hold exactly the expected table- and column-level privileges, nothing more or less.
+- [x] RPCs are `SECURITY DEFINER` with an empty `search_path`. anon can call `get_public_event_info()` but not `admin_list_users()`.
+- [x] anon: every select, insert, update and delete on every table is refused (permission denied, which is stronger than "zero rows").
+- [x] anon: `get_public_event_info()` returns the current year and date and no other fields, and no row when no event exists.
+- [x] Auth user without a profile: zero rows everywhere, and every write refused or affecting 0 rows.
+- [x] Member: can read other active profiles but not the deactivated one, and can't read `email` (even their own) or the account-management columns. `select *` on `users` is refused.
+- [x] Member: can update their own name, country, flag and RSVP, and a country change still logs a claim. Can't update another user, or set their own `role`, `email`, `is_active`, `auth_user_id`, `invitation_id` or `created_at`.
+- [x] Admin: reads and edits every profile, deactivated included. Can't read email or set role/active through the table; `admin_list_users()` returns everything to the admin and refuses members.
+- [x] Member: cannot read, create or revoke invitations. Admin reads (token included), creates and revokes them, but can't choose token, status, use count or year, and can't delete.
+- [x] Member: reads this year's messages only. A deactivated author's message stays, with the author hidden. Posts as self into the current year; can't post as another user, choose the year or timestamp, or edit.
+- [x] Member: cannot delete any message, own included. Admin can delete any current-year message, and its likes go with it.
+- [x] Member: reads likes on visible messages only. Can like and unlike as self, but not as another user or on last year's messages, and can't delete another user's like.
+- [x] Member: reads this year's claims. Nobody, admin included, can insert, edit or delete `country_claims` through the API.
+- [x] Member: reads `event_settings` but can't create, update or delete. Admin can create and update, but can't change a row's year or delete.
+- [x] Deactivated member: zero rows everywhere, including their own profile, and can't post as themselves.
 
 ### Tasks
-- [ ] Write SQL tests
-- [ ] `db/migrations/002_rls.sql`
-- [ ] Admin read path for emails (`admin_list_users()` RPC or equivalent)
-- [ ] ADRs for A5, A6, A7
+- [x] Write SQL tests
+- [x] `db/migrations/002_rls.sql`
+- [x] Admin read path for emails (`admin_list_users()` RPC or equivalent)
+- [x] ADRs for A5, A6, A7
 
 ### Notes
 - Depends on: 002.
 
 - From ISSUE-002: RLS is already **enabled** on all six tables with no policies. This issue adds the policies and keeps the tests that RLS is on.
-- Supabase grants ALL on new tables to `anon` and `authenticated` by default. Revoke what each role shouldn't have, e.g. `anon` everywhere, and column-level privileges on `users` so members can't select `email` (A5).
+- Don't rely on Supabase's default table privileges. Older projects grant ALL on new tables to `anon`, `authenticated` and `service_role`. Our dev project, checked 2026-11-15 with `information_schema.role_table_grants`, gives `anon` and `authenticated` only TRUNCATE, REFERENCES and TRIGGER, with no SELECT, INSERT, UPDATE or DELETE. So the migration first revokes everything from every API role, then grants exactly what each needs. That includes column-level privileges on `users`, so members can't select `email` (A5). A test checks the exact grant set, so either default ends up in the same place.
 - Identify the caller with `current_member_id()`, never `auth.uid()` (ADR-007). `users.id` is not the auth id.
 - Insert policies on `messages` must require `event_year = current_event_year()` (ADR-008).
 - Decide how a message by a removed (deactivated) author shows, when members can only read active profiles (ADR-010). For example, show "Former member".
 - The helpers are executable by `authenticated` and `service_role` only, not `anon`.
+- **Done (2026-11-15):** `002_rls.sql` revokes all privileges from PUBLIC, `anon`, `authenticated` and `service_role`, then grants exactly what each needs (ADR-015). It adds one policy per allowed command (ADR-017), and `get_public_event_info()` (ADR-016) and `admin_list_users()`.
+- Removed authors: their messages stay, and members see "Former member" (ADR-017, ADR-010 amended).
+- `anon` gets *permission denied* on every table rather than zero rows: it has no grants at all, which is stricter than the original test wording.
+- Local run: `tests/db/run_local.sh` passes (test_002 + test_003). The migration was broken 25 ways on purpose (dropped revoke, extra column grants, loosened policies, an unchecked RPC, a wider RPC result, and so on), and a named check caught every one.
+- **Dev acceptance (2026-11-15):** the Boss applied `002_rls.sql` on dev. `test_002_schema.sql` and `test_003_rls.sql` both pass in the SQL Editor (ADR-013).
 ---
 
 ## [ISSUE-004] Flag storage bucket & policies
@@ -556,6 +564,7 @@ The public advertisement for the event: same URL as the dashboard, shown when lo
 
 ### Notes
 - Depends on: 003 (RPC), 009.
+- From ISSUE-003: `get_public_event_info()` returns `[]` or `[{year, event_date}]`. Use `supabase.rpc('get_public_event_info').maybeSingle()`. It is the only thing `anon` can call (ADR-016).
 
 ---
 
@@ -653,6 +662,8 @@ Turn a signed-in auth user into a member, or reject them. This is where invitati
 
 - Tokens are exactly 64 lowercase hex characters (`^[0-9a-f]{64}$`, enforced by a DB check; ADR-009). `parseInviteToken` should accept exactly that.
 - Match emails with `lower(email) = lower(<auth email>)`. The unique index is on `lower(email)`.
+- From ISSUE-003: `authenticated` has no INSERT on `users`, and can't write `auth_user_id`, `invitation_id` or `invitations.use_count`. So `claim_membership` must be `SECURITY DEFINER` with `set search_path = ''`, and EXECUTE granted to `authenticated` only. Copy the revoke/grant pattern at the end of `002_rls.sql`. Raise `42501` for refusals so they match the RLS errors.
+
 ---
 
 ## [ISSUE-013] Sidebar — event date & yearly theme
@@ -686,6 +697,7 @@ A sidebar on every authenticated page with the event date (prominent), theme tit
 
 ### Notes
 - Depends on: 003, 008, 009.
+- From ISSUE-003: members can read every `event_settings` row. Fetch the current one with `select('event_date,theme_title,theme_desc').order('year', {ascending: false}).limit(1).maybeSingle()`.
 
 ---
 
@@ -722,6 +734,7 @@ A sidebar on every authenticated page with the event date (prominent), theme tit
 
 ### Notes
 - Depends on: 012.
+- From ISSUE-003 (ADR-015): `users.email` can't be read through the API, not even your own. Show the email from the Auth session (`session.user.email`). Reads of `users` must list columns (`id,name,country,flag_url,rsvp,role,created_at`), because `select=*` is refused. Updates may send only `name`, `country`, `flag_url` and `rsvp`; any other column is refused.
 
 ---
 
@@ -793,6 +806,7 @@ Post and read plain-text messages, newest first, with infinite scroll.
 
 ### Notes
 - Depends on: 008, 012.
+- From ISSUE-003 (ADR-017): RLS already limits members to the current year, but still filter on `event_year` so the query uses the index. Embed the author with explicit columns, e.g. `author:users(id,name,flag_url)`, as PostgREST's default left embed. A null author means a removed user: render "Former member" with the default avatar. Inserts send only `user_id` and `text`. The year and timestamp come from defaults, and sending them is refused.
 
 ---
 
@@ -828,6 +842,7 @@ A meeple "like" toggle on each message, with a count and a list of who liked it.
 
 ### Notes
 - Depends on: 016.
+- From ISSUE-003: inserts send only `message_id` and `user_id`. Likes are readable and addable only on current-year messages. Counts include likes from removed users, whose names aren't readable, so "who liked it" should list the names it can see plus e.g. "+1 former member".
 
 ---
 
@@ -866,6 +881,7 @@ A reverse-chronological feed of country claims and new messages, which gives the
 
 ### Notes
 - Depends on: 003, 008, 009.
+- From ISSUE-003 (ADR-017): with `security_invoker = true` the view runs under the caller's RLS, so current-year filtering and the membership gate come for free. **Left** join to `users` (members can't see deactivated profiles) and render a null actor as "Former member". An inner join would silently drop removed users' items.
 
 ---
 
@@ -969,6 +985,8 @@ Generate shareable invite links, list all invitations, revoke unused ones, and s
 - Depends on: 020.
 
 - `invitations.token` is generated by its column default (244 random bits, ADR-009), so `create_link_invitation` just inserts and returns the token.
+- From ISSUE-003: the admin can already `insert` into `invitations` (`type`, `email`, `max_uses` only; the database generates the token) and revoke with an `update` of `status` + `revoked_at`. Deletes are refused. So `create_link_invitation` may be unnecessary; decide here, and if it stays, make it `SECURITY DEFINER` and admin-checked.
+
 ---
 
 ## [ISSUE-022] Email delivery mechanism
@@ -1016,6 +1034,7 @@ Both sit behind one interface that ISSUE-023 and ISSUE-027 use.
   - `inviteUserByEmail` fails for emails that already have an account. Returning users are reached by the RSVP follow-up after Start New Year instead.
   - Invite links are short-lived (≤24 h). That's harmless, because membership also matches by email on any later sign-in.
 - Supabase docs say Edge Functions can't open outbound connections on SMTP ports 25/587, so hand-rolled Gmail SMTP isn't a dependable path. That's why the function uses the Auth invite API.
+- From ISSUE-003: `service_role` (the secret key) has SELECT, INSERT, UPDATE and DELETE on every table, but not TRUNCATE, and bypasses RLS. `admin_list_users()` checks `is_admin()` from the caller's JWT, so it won't work with the secret key alone.
 
 ---
 
@@ -1093,6 +1112,7 @@ View, edit, register on behalf of, and remove users.
 
 ### Notes
 - Depends on: 015, 020.
+- From ISSUE-003: `admin_list_users()` already exists. It's admin-checked, returns every column including email and `is_active`, and can be filtered and sorted through PostgREST. test_003 covers "returns emails to the admin, denied to members"; this issue only needs to extend it. The admin edits name, country, flag and RSVP with plain updates, but `role`, `email`, `is_active`/`deactivated_at` and inserts are refused by column grants, so `admin_create_user`, deactivate/reactivate and any role change must be `SECURITY DEFINER` RPCs.
 
 ---
 
@@ -1128,6 +1148,8 @@ Set the current year's event date, theme title, and description.
 - Depends on: 013, 020.
 
 - DB checks already enforce title 1–100 characters (not blank) and description ≤1000 (ISSUE-002). The form's constants must match.
+- From ISSUE-003: the admin updates `event_date`, `theme_title` and `theme_desc` directly. `year` can't be changed, and settings can't be deleted.
+
 ---
 
 ## [ISSUE-026] Admin — message moderation
@@ -1239,6 +1261,7 @@ One admin action that archives the past year and resets the site for the next ev
 ### Notes
 - Depends on: 016, 018, 021.
 - Browsing archived years is out of scope (SPEC § Yearly Lifecycle).
+- From ISSUE-003: the admin can insert the new year's `event_settings` row and clear profiles directly, but those are separate requests that can half-fail. Prefer one `SECURITY DEFINER`, admin-checked RPC that does it all in one transaction.
 
 ---
 
@@ -1371,6 +1394,7 @@ Free-tier projects pause after 7 idle days. The site sits idle for months betwee
 ### Notes
 - Depends on: 003, 032.
 - The repo is **public** (checked 2026-11-13), so GitHub disables scheduled workflows after 60 days with no repo activity. Between events, expect an email from GitHub roughly 2–3 times a year. Then open Actions → keepalive → Enable workflow, and run it once by hand.
+- From ISSUE-003: the ping target `get_public_event_info()` exists and is callable by `anon` (ADR-016).
 
 ---
 
