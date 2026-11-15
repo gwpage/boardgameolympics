@@ -228,7 +228,7 @@ SQL migrations for the six tables in the spec. Also adds the columns the spec im
 - **Status:** Complete
 - **Branch:** `issue/003-rls-policies`
 - **Spec Reference:** SETUP_SUPABASE.md § Enable Row Level Security; SPEC.md § Invitation-Only Access, § Admin Panel
-- **PR:** _pending_
+- **PR:** #5
 
 ### Description
 Supabase exposes the database through a public API, so RLS is the real security boundary. Lock every table down to exactly what each role needs.
