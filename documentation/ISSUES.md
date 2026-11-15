@@ -249,18 +249,21 @@ Supabase exposes the database through a public API, so RLS is the real security 
 
 ### Tests
 - **Test file(s):** `tests/db/test_003_rls.sql`
-- [ ] anon: zero rows from every table; every insert fails.
-- [ ] anon: `get_public_event_info()` returns the date and no other fields.
-- [ ] Auth user without a profile: zero rows everywhere.
-- [ ] Member: can read other profiles but cannot read their email.
-- [ ] Member: cannot update another user, or set their own `role`/`is_active`.
-- [ ] Member: cannot read invitations.
-- [ ] Member: can post as self; cannot post as another user.
-- [ ] Member: cannot delete any message, own included. Admin can delete any.
-- [ ] Member: can like and unlike; cannot delete another user's like.
-- [ ] Member: cannot insert into `country_claims` directly.
-- [ ] Member: cannot update `event_settings`; admin can.
-- [ ] Deactivated member: zero rows everywhere.
+- [ ] Grants: `anon`, `authenticated`, `service_role` and PUBLIC hold exactly the expected table- and column-level privileges, nothing more or less.
+- [ ] RPCs are `SECURITY DEFINER` with an empty `search_path`. anon can call `get_public_event_info()` but not `admin_list_users()`.
+- [ ] anon: every select, insert, update and delete on every table is refused (permission denied, which is stronger than "zero rows").
+- [ ] anon: `get_public_event_info()` returns the current year and date and no other fields, and no row when no event exists.
+- [ ] Auth user without a profile: zero rows everywhere, and every write refused or affecting 0 rows.
+- [ ] Member: can read other active profiles but not the deactivated one, and can't read `email` (even their own) or the account-management columns. `select *` on `users` is refused.
+- [ ] Member: can update their own name, country, flag and RSVP, and a country change still logs a claim. Can't update another user, or set their own `role`, `email`, `is_active`, `auth_user_id`, `invitation_id` or `created_at`.
+- [ ] Admin: reads and edits every profile, deactivated included. Can't read email or set role/active through the table; `admin_list_users()` returns everything to the admin and refuses members.
+- [ ] Member: cannot read, create or revoke invitations. Admin reads (token included), creates and revokes them, but can't choose token, status, use count or year, and can't delete.
+- [ ] Member: reads this year's messages only. A deactivated author's message stays, with the author hidden. Posts as self into the current year; can't post as another user, choose the year or timestamp, or edit.
+- [ ] Member: cannot delete any message, own included. Admin can delete any current-year message, and its likes go with it.
+- [ ] Member: reads likes on visible messages only. Can like and unlike as self, but not as another user or on last year's messages, and can't delete another user's like.
+- [ ] Member: reads this year's claims. Nobody, admin included, can insert, edit or delete `country_claims` through the API.
+- [ ] Member: reads `event_settings` but can't create, update or delete. Admin can create and update, but can't change a row's year or delete.
+- [ ] Deactivated member: zero rows everywhere, including their own profile, and can't post as themselves.
 
 ### Tasks
 - [ ] Write SQL tests
