@@ -108,7 +108,7 @@ tests/db/run_local.sh                                 # every tests/db/test_*.sq
 tests/db/run_local.sh tests/db/test_002_schema.sql    # just one
 ```
 
-It creates a throwaway Postgres (Unix socket only, nothing on the network) and applies `tests/db/supabase_stub.sql`, a minimal stand-in for Supabase's roles, `auth.users` and `auth.uid()`. Then it applies every migration **twice** (to prove they're safe to re-run), applies any seed files, runs the tests, prints `PASS`/`FAIL`, and deletes the database. A run takes a second or two. Exit codes: 0 pass, 1 failure, 2 setup problem. Set `PG_BIN` if the tools aren't in the Homebrew location.
+It creates a throwaway Postgres (Unix socket only, nothing on the network) and applies `tests/db/supabase_stub.sql`, a minimal stand-in for Supabase's roles, `auth.users`, `auth.uid()` and the `storage` tables. Its `flags` bucket starts out private and unlimited, as if it had been made by hand, so every run checks that `003_storage.sql` corrects an existing bucket. Then it applies every migration **twice** (to prove they're safe to re-run), applies any seed files, runs the tests, prints `PASS`/`FAIL`, and deletes the database. A run takes a second or two. Exit codes: 0 pass, 1 failure, 2 setup problem. Set `PG_BIN` if the tools aren't in the Homebrew location.
 
 **In Supabase (the real check, before merging).** Run against the **dev** project. **Never run tests against production.**
 
@@ -130,6 +130,8 @@ The stub only imitates Supabase, so the Supabase run is what counts. If the two 
 - Wrap destructive checks (deleting rows other tests rely on) in `savepoint …; … rollback to savepoint …;`.
 - Don't create tables in a test file, not even temporary ones. The Supabase SQL Editor flags any `CREATE TABLE` without RLS and offers a fix that breaks the script. To share ids between `do` blocks, store them in transaction-local settings with `set_config('t###.name', value, true)`, like the `remember`/`fx` helpers in `test_003_rls.sql`.
 - To test what an API caller may do, copy the helpers at the top of `tests/db/test_003_rls.sql`. `exec_as`, `value_as`, `expect_rows` and `expect_error_as` run one statement the way PostgREST would, as `anon` or as a signed-in `authenticated` user, then switch back to `postgres`. A refused GRANT and a row rejected by a policy both raise SQLSTATE `42501`. A blocked UPDATE or DELETE raises nothing and affects 0 rows, so assert the row count.
+- **Storage tests** (`test_004_storage.sql`) simulate Storage API calls as SQL on `storage.objects`: an upload is an INSERT of `(bucket_id, name)` and a removal is a DELETE. Only metadata rows are created, never files. Supabase refuses DELETE on storage tables unless the transaction sets `storage.allow_delete_query = 'true'`, as the Storage API does, so the test sets it at the top. Never delete storage rows by SQL outside a rolled-back test, because that orphans the files.
+- **UPDATE and DELETE policies hide behind SELECT.** Postgres also applies a table's SELECT policy to an UPDATE or DELETE whose WHERE or RETURNING reads a column. A check like `delete … where id = …` therefore passes even if the DELETE policy is broken, as long as the SELECT policy is right. To check the UPDATE or DELETE policy on its own, use a statement with no WHERE that reads no column (`delete from t`, `update t set c = 'constant'`), inside a savepoint you roll back straight away. See `[policy-alone]` in `test_004_storage.sql`.
 - Add the new file to the Tests section of its issue in ISSUES.md.
 
 ### Applying migrations

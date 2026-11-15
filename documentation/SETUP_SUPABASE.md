@@ -144,16 +144,24 @@ Supabase's default email sender has rate limits (around 2–3 emails per hour on
 
 ## Step 5: Set Up Storage (for Flag Images)
 
-1. Go to **Storage** in the left sidebar.
-2. Click **"New bucket"**.
-3. Name it `flags`.
-4. Set it to **Public** (so flag images can be displayed without authentication).
-5. Click **"Create bucket"**.
-6. Set up a storage policy to allow authenticated users to upload:
-   - Go to the `flags` bucket → **Policies** tab.
-   - Add a policy for **INSERT** that allows authenticated users (`auth.role() = 'authenticated'`).
-   - Add a policy for **SELECT** that allows public access (so flags display for everyone).
-   - Add a policy for **UPDATE** and **DELETE** so users can replace their own flag.
+**Nothing to click.** The `flags` bucket and its access rules come from `db/migrations/003_storage.sql`, which you apply with the other migrations in Step 6. It needs the helper functions from `001_schema.sql`, so it can't run any earlier.
+
+What it sets up ([ADR-018](./DECISIONS.md)):
+
+- A **public** bucket named `flags`. Anyone can load a flag image from its URL, signed in or not.
+- Uploads are limited to **2 MB** (2,097,152 bytes) and to **JPEG or PNG**. The Storage API refuses anything else. The 1024 × 1024 px limit is checked by the upload form (ISSUE-015), because a bucket can't check it.
+- Each member has a folder named after their profile id: `flags/{member id}/{timestamp}.png`.
+
+| Who | Can do in `flags` |
+|-----|-------------------|
+| **Anyone** | Load a flag from its public URL. Nobody can list the bucket. |
+| **Member** | Upload, replace, rename and delete files in their own folder only. |
+| **Admin** | The same, in every member's folder, to set a flag for someone. |
+| **Signed in, not a member**, or signed out | Nothing. |
+
+**If the bucket was set up by hand from an older version of this guide** (the dev project was), the migration corrects the bucket's settings. It doesn't remove hand-made policies, though, and Postgres combines policies with OR, so one loose policy undoes the rules above. Before running `test_004_storage.sql`, go to **Storage** → **Policies** and delete every policy on the `flags` bucket that isn't one of `flags_select`, `flags_insert`, `flags_update` or `flags_delete`. If you miss one, the test fails and names it.
+
+The project-wide upload limit (**Storage** → **Settings**, 50 MB on the free plan) is well above 2 MB, so leave it alone.
 
 ---
 
