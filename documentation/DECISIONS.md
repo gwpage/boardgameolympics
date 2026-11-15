@@ -338,3 +338,29 @@ Format: `~/.claude/rules/quality.md`. Open work that implements these lives in [
   - The board (ISSUE-016) and activity feed (ISSUE-018) must use a **left** join or embed to the author, and render a null author as "Former member". An inner join would make removed users' items disappear.
   - Like counts include likes from removed users, but "who liked it" can't name them (ISSUE-017).
   - Members can't tidy up their own posts; they ask the host. That matches the spec's moderation model.
+
+---
+
+## [ADR-018] Flag storage: public bucket with no public SELECT policy; per-member folders keyed on profile id
+
+- **Date:** 2026-11-15
+- **Status:** Accepted
+- **Context:**
+  - Flags are members' avatars. Everyone who sees a message or profile must be able to load them, and the spec calls for "public read access and authenticated upload" (SPEC § File Storage).
+  - The old setup guide built the bucket and its policies by clicking in the dashboard, so they couldn't be reproduced or tested. It also allowed any signed-in user to upload anywhere, and added a public SELECT policy.
+  - On a public bucket, the Storage API serves public URLs with no policy check. A SELECT policy for everyone adds only the ability to **list** the bucket, which Supabase's Security Advisor warns about. The API still needs SELECT to remove or overwrite a file.
+  - Storage tables belong to Supabase. The API roles hold ALL on `storage.objects`, with RLS on. The Storage API runs as those roles and depends on those grants.
+  - The dev project already had a hand-made `flags` bucket when this was written.
+- **Decision:**
+  - `db/migrations/003_storage.sql` **upserts** the `flags` bucket as public, with `file_size_limit` 2,097,152 bytes and `allowed_mime_types` `image/jpeg` and `image/png`. Running it corrects a hand-made bucket.
+  - Objects live at `{member_id}/{file}`, with the folder named after the profile id (`users.id`), not the auth id (ADR-007). Four policies (`flags_select`, `flags_insert`, `flags_update`, `flags_delete`), all `to authenticated`, apply one rule: `bucket_id = 'flags'` and either `is_admin()` or the first folder equals `current_member_id()`. UPDATE has the rule in both USING and WITH CHECK, so files can't be moved into another folder.
+  - "Anyone can read" means the bucket's public URLs. Nobody gets a bucket-wide SELECT policy, so signed-out visitors and members can't list other members' files. Members can list only their own folder; the admin can list them all.
+  - Grants on storage tables are left as Supabase sets them. That's an exception to ADR-015, which covers our own tables. RLS is the boundary here.
+  - `test_004_storage.sql` requires that the policies on `storage.objects` are exactly these four. Postgres ORs permissive policies together, so a stray hand-made one would quietly widen access.
+- **Consequences:**
+  - Deactivated users and signed-in non-members can't write, even to their old folder: `current_member_id()` is null for them.
+  - Flag files are public to anyone who has or guesses the URL. Paths contain a random profile id and a timestamp, and flags are meant to be shown, so that's acceptable.
+  - Admin-made flags sit in the member's folder, so the member can later replace or remove them. Storage's `owner_id` column records whoever uploaded the file. Policies ignore it.
+  - A future bucket needs its own policies, and an extension of test_004's exact-policy check.
+  - Postgres also applies the SELECT policy to an UPDATE or DELETE that reads a column, which hides mistakes in the other policies. test_004 checks those policies with statements that read no column (see the README).
+  - Supabase blocks direct SQL DELETE on storage tables unless `storage.allow_delete_query` is `'true'`, which the Storage API sets for its own deletes. SQL tests set it to simulate API deletes. Deleting a row by SQL would orphan its file, so real deletes always go through the Storage API.
