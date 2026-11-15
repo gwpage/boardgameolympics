@@ -225,7 +225,7 @@ SQL migrations for the six tables in the spec. Also adds the columns the spec im
 ## [ISSUE-003] Row Level Security policies
 
 - **Type:** Feature
-- **Status:** Open
+- **Status:** In Progress
 - **Branch:** `issue/003-rls-policies`
 - **Spec Reference:** SETUP_SUPABASE.md § Enable Row Level Security; SPEC.md § Invitation-Only Access, § Admin Panel
 - **PR:** —
@@ -272,7 +272,7 @@ Supabase exposes the database through a public API, so RLS is the real security 
 - Depends on: 002.
 
 - From ISSUE-002: RLS is already **enabled** on all six tables with no policies. This issue adds the policies and keeps the tests that RLS is on.
-- Supabase grants ALL on new tables to `anon` and `authenticated` by default. Revoke what each role shouldn't have, e.g. `anon` everywhere, and column-level privileges on `users` so members can't select `email` (A5).
+- Don't rely on Supabase's default table privileges. Older projects grant ALL on new tables to `anon`, `authenticated` and `service_role`. Our dev project, checked 2026-11-15 with `information_schema.role_table_grants`, gives `anon` and `authenticated` only TRUNCATE, REFERENCES and TRIGGER, with no SELECT, INSERT, UPDATE or DELETE. So the migration first revokes everything from every API role, then grants exactly what each needs. That includes column-level privileges on `users`, so members can't select `email` (A5). A test checks the exact grant set, so either default ends up in the same place.
 - Identify the caller with `current_member_id()`, never `auth.uid()` (ADR-007). `users.id` is not the auth id.
 - Insert policies on `messages` must require `event_year = current_event_year()` (ADR-008).
 - Decide how a message by a removed (deactivated) author shows, when members can only read active profiles (ADR-010). For example, show "Former member".
