@@ -37,13 +37,15 @@ begin;
 -- -----------------------------------------------------------------------------
 
 -- Named fixture ids, so each do-block can find the rows the setup created.
-create temp table fixture (name text primary key, id uuid not null);
-
+-- They're kept in transaction-local custom settings (t003.<name>), not in a
+-- table. The Supabase SQL Editor flags any CREATE TABLE without RLS, even a
+-- temporary one, and the fix it suggests breaks the script. The settings
+-- vanish with the final rollback.
 create function pg_temp.remember(p_name text, p_id uuid)
 returns uuid
 language sql
 as $$
-  insert into pg_temp.fixture (name, id) values (p_name, p_id) returning id
+  select set_config('t003.' || p_name, p_id::text, true)::uuid
 $$;
 
 create function pg_temp.fx(p_name text)
@@ -52,13 +54,13 @@ language plpgsql
 stable
 as $$
 declare
-  found_id uuid;
+  stored constant text := current_setting('t003.' || p_name, true);
 begin
-  select f.id into found_id from pg_temp.fixture f where f.name = p_name;
-  if found_id is null then
+  -- Never set → null. Set and then rolled back → ''.
+  if stored is null or stored = '' then
     raise exception 'test bug: no fixture named %', p_name;
   end if;
-  return found_id;
+  return stored::uuid;
 end;
 $$;
 
