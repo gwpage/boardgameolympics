@@ -342,7 +342,7 @@ Create the `flags` bucket in SQL instead of dashboard clicks, so it's reproducib
 - **Status:** Complete
 - **Branch:** `issue/005-seed-data`
 - **Spec Reference:** SPEC.md § Initial Administrator, § Test Data (2025 Event); SEED_DATA_2025.md
-- **PR:** —
+- **PR:** #7
 
 ### Description
 Idempotent seed scripts: the admin account (all environments) and the 2025 test dataset (dev only), so the UI can be built against realistic content.
@@ -405,7 +405,7 @@ Idempotent seed scripts: the admin account (all environments) and the 2025 test 
     - a re-run restores a deleted seed like and nothing else.
   - The first pass found that a restoring `001` hid a wrong initial role, which led to the add-only rule for 001.
 - Existing tests pass with seed data loaded. Local: `tests/db/run_local.sh` PASS 4/4. `tests/run.sh` PASS 34/34.
-- Dev acceptance: pending (see the PR).
+- Dev acceptance: pending (see PR #7).
 
 ---
 
