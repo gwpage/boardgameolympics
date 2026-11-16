@@ -13,7 +13,8 @@
 # 3. Applies db/migrations/*.sql in order, as the `postgres` role (as in the
 #    Supabase SQL Editor), and then applies them all a second time to prove the
 #    migrations can be safely re-run.
-# 4. Applies db/seed/*.sql, if any, in order.
+# 4. Applies db/seed/*.sql in order, then applies them a second time to prove
+#    the seeds can be safely re-run (test_005_seed.sql checks the counts).
 # 5. Runs each test file and prints a PASS/FAIL summary.
 # 6. Stops the cluster and deletes it, even on failure or Ctrl-C.
 #
@@ -159,11 +160,12 @@ if ! output="$(run_sql_file "$SUPERUSER" "$STUB_FILE")"; then
   exit "$EXIT_SETUP_PROBLEM"
 fi
 
-# --- 3–4. Migrations (twice) and seeds ------------------------------------------
+# --- 3–4. Migrations and seeds (each twice) -----------------------------------
 
 apply_dir "$MIGRATIONS_DIR" "migrations applied" || exit "$EXIT_FAILED"
 apply_dir "$MIGRATIONS_DIR" "migrations re-applied (must be safe to re-run)" || exit "$EXIT_FAILED"
 apply_dir "$SEED_DIR" "seed data applied" || exit "$EXIT_FAILED"
+apply_dir "$SEED_DIR" "seed data re-applied (must not duplicate anything)" || exit "$EXIT_FAILED"
 
 # --- 5. Tests -------------------------------------------------------------------
 
