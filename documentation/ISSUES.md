@@ -339,7 +339,7 @@ Create the `flags` bucket in SQL instead of dashboard clicks, so it's reproducib
 ## [ISSUE-005] Seed data — admin & 2025 test data
 
 - **Type:** Feature
-- **Status:** Open
+- **Status:** In Progress
 - **Branch:** `issue/005-seed-data`
 - **Spec Reference:** SPEC.md § Initial Administrator, § Test Data (2025 Event); SEED_DATA_2025.md
 - **PR:** —
