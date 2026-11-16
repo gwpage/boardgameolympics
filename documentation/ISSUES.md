@@ -339,7 +339,7 @@ Create the `flags` bucket in SQL instead of dashboard clicks, so it's reproducib
 ## [ISSUE-005] Seed data — admin & 2025 test data
 
 - **Type:** Feature
-- **Status:** In Progress
+- **Status:** Complete
 - **Branch:** `issue/005-seed-data`
 - **Spec Reference:** SPEC.md § Initial Administrator, § Test Data (2025 Event); SEED_DATA_2025.md
 - **PR:** —
@@ -348,30 +348,34 @@ Create the `flags` bucket in SQL instead of dashboard clicks, so it's reproducib
 Idempotent seed scripts: the admin account (all environments) and the 2025 test dataset (dev only), so the UI can be built against realistic content.
 
 ### Acceptance Criteria
-- [ ] `db/seed/001_admin.sql`: Wiley Page / gwpage@gmail.com / admin, `auth_user_id` null (linked on first sign-in, A1). Safe for prod.
-- [ ] `db/seed/002_test_data_2025.sql`:
+- [x] `db/seed/001_admin.sql`: Wiley Page / gwpage@gmail.com / admin, `auth_user_id` null (linked on first sign-in, A1). Safe for prod.
+- [x] `db/seed/002_test_data_2025.sql`:
   - 2025 event settings
   - all 21 users with their country and RSVP
   - 20 messages
   - every like in SEED_DATA_2025.md
   - one country claim per user, dated at registration
-- [ ] The test-data script has a prominent **DEV ONLY** header.
-- [ ] Re-running either script creates no duplicates.
+- [x] The test-data script has a prominent **DEV ONLY** header.
+- [x] Re-running either script creates no duplicates.
 
 ### Tests
 - **Test file(s):** `tests/db/test_005_seed.sql`
-- [ ] Exactly 1 admin, with email gwpage@gmail.com.
-- [ ] 21 users: 18 attending, 2 not_attending, 1 no_response.
-- [ ] 20 messages, each timestamped on or after its author's registration date.
-- [ ] Like totals match the source: 49 overall, 7 on Owen's "Root…", 7 on Sam's "Can't wait…", 6 on Dave's "Pandemic…".
-- [ ] 21 country claims with `claimed_at` equal to the registration date.
-- [ ] 2025 settings: date 2025-02-15, title "Board Games".
-- [ ] Running both scripts twice leaves all counts unchanged.
+- [x] Exactly 1 admin, with email gwpage@gmail.com.
+- [x] 21 users: 18 attending, 2 not_attending, 1 no_response.
+- [x] 20 messages, each timestamped on or after its author's registration date.
+- [x] Like totals match the source: 49 overall, 7 on Owen's "Root…", 7 on Sam's "Can't wait…", 6 on Dave's "Pandemic…".
+- [x] 21 country claims with `claimed_at` equal to the registration date.
+- [x] 2025 settings: date 2025-02-15, title "Board Games".
+- [x] Running both scripts twice leaves all counts unchanged.
+- [x] Added: the test's copy of the expected data matches the source totals (`[expected]`), so a typo in the test can't hide a bad seed.
+- [x] Added: every seeded person's name, role, country, RSVP and registration date. Fake people are active and have no Auth account, invitation or flag. The admin is unlinked, or linked to an Auth account with the same email.
+- [x] Added: every message and like by content, the like count on each of the 20 messages, and 2025 as the current event year.
+- [x] Added: every date shows unchanged in UTC and every mainland US time zone. Likes come after both the post and the liker's registration, and by 14 February.
 
 ### Tasks
-- [ ] Write SQL tests
-- [ ] Admin seed
-- [ ] 2025 test data seed
+- [x] Write SQL tests
+- [x] Admin seed
+- [x] 2025 test data seed
 
 ### Notes
 - Depends on: 002.
@@ -380,6 +384,29 @@ Idempotent seed scripts: the admin account (all environments) and the 2025 test 
 
 - Approach for historical claim dates (ADR-011): insert each user *with* their country (the trigger creates the claim), then `update country_claims set claimed_at = …`. `session_replication_role` needs superuser, which the Supabase SQL Editor's `postgres` role is not. The seed runs as the table owner, so RLS doesn't get in the way.
 - Seeded users have `invitation_id` null and `auth_user_id` null.
+- As built (ADR-019):
+  - **Add-only.** Seeds insert what's missing and never change or delete an existing row, so re-seeding a dev database that's in use is safe. It also won't undo hand changes.
+    - The one exception: a seeded person who has never claimed a country gets their seed profile. That's how the admin profile that 001 creates bare gets Monopoly, attending and 2025-01-15 on dev.
+  - `001_admin.sql` doesn't restore admin rights on a re-run. Lockout recovery is a one-line UPDATE in SETUP_SUPABASE.md Step 7.
+  - **Claim dates.** Claims with `claimed_at = now()` are exactly the ones this transaction's trigger wrote, and they get the registration time.
+  - **Times.** Registrations are at 12:00 UTC and posts at 18:00 UTC (Noor's 30 January post at 19:00, after Marcus's). A like comes an hour after the later of the post and the liker registering.
+  - **Guards.** `002` refuses unless `001` has been applied, and refuses if any event after 2025 exists. It also checks that every name in its messages and likes is in its people list, so a typo can't silently drop a row.
+  - `tests/db/run_local.sh` now applies the seeds twice. `test_005` checks only the 21 seeded people (by email) and what they own, so other dev accounts don't affect it. But it fails once a seeded person's data is changed on dev; run it right after seeding.
+- Mutation check: 34/34 deliberate breaks of the seeds were caught. They covered every setting, person, message and like field; the claim dating; each step's duplicate guard; and the times of day.
+  - Six more only show up when re-seeding a database already in use. A scratch scenario check caught all six:
+    - a re-run overwriting hand-changed RSVP or name;
+    - backdating a newer real claim;
+    - 001 restoring admin rights;
+    - either guard removed;
+    - `pg_temp` helpers left behind.
+  - The scenario also confirmed:
+    - a case-variant email isn't duplicated;
+    - a refused run changes nothing;
+    - a re-run restores a deleted seed like and nothing else.
+  - The first pass found that a restoring `001` hid a wrong initial role, which led to the add-only rule for 001.
+- Existing tests pass with seed data loaded. Local: `tests/db/run_local.sh` PASS 4/4. `tests/run.sh` PASS 34/34.
+- Dev acceptance: pending (see the PR).
+
 ---
 
 ## [ISSUE-006] Theme system (light / Game Night Mode)
@@ -1282,6 +1309,7 @@ One admin action that archives the past year and resets the site for the next ev
 - Browsing archived years is out of scope (SPEC § Yearly Lifecycle).
 - From ISSUE-003: the admin can insert the new year's `event_settings` row and clear profiles directly, but those are separate requests that can half-fail. Prefer one `SECURITY DEFINER`, admin-checked RPC that does it all in one transaction.
 - From ISSUE-004: old flag files stay in each member's folder after the reset. The folder policies still let that member, or the admin, delete them, so the archive of flag files is best-effort, not protected. ISSUE-015's "delete the previous file" step won't touch them, because `flag_url` is null after the reset.
+- From ISSUE-005: after Start New Year runs on dev, there's a 2026 event, so `db/seed/002_test_data_2025.sql` refuses to run again (ADR-019). Getting dev back to the 2025 test state would need a reset script, which hasn't been built.
 
 ---
 
@@ -1381,6 +1409,7 @@ Stand up the production Supabase project and the Cloudflare Pages site on the cu
 - The Boss performs the dashboard and DNS steps. Claude prepares the files, checklists, and doc updates.
 
 - Apply migrations per SETUP_SUPABASE.md Step 6. Before any invitations go out, the admin sets the event date and theme, which creates the first `event_settings` row. Rows created earlier would be stamped with the calendar year (ADR-008).
+- From ISSUE-005: on prod, apply **only** `db/seed/001_admin.sql` (SETUP_SUPABASE.md Step 7). Never apply `002_test_data_2025.sql`. Its guard can't recognise a new prod project that has no event yet. Then sign in as gwpage@gmail.com to link the admin profile.
 ---
 
 ## [ISSUE-031] Supabase keep-alive
