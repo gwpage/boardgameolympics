@@ -405,7 +405,7 @@ Idempotent seed scripts: the admin account (all environments) and the 2025 test 
     - a re-run restores a deleted seed like and nothing else.
   - The first pass found that a restoring `001` hid a wrong initial role, which led to the add-only rule for 001.
 - Existing tests pass with seed data loaded. Local: `tests/db/run_local.sh` PASS 4/4. `tests/run.sh` PASS 34/34.
-- Dev acceptance: pending (see PR #7).
+- Dev acceptance (2026-11-16): the Boss applied both seeds in the dev SQL Editor and ran `test_002`–`test_005`. All passed, so the existing schema, RLS and storage tests also hold with seed data on dev.
 
 ---
 
