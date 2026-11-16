@@ -15,24 +15,18 @@
 --   first time someone signs in with this email (ADR-007). Until then, nobody
 --   is the admin.
 --
--- IF THE PROFILE ALREADY EXISTS (a re-run)
---   Nothing about it changes, except that it is made an active admin again if
---   it had somehow stopped being one. That makes a re-run the way back in if
---   the admin is ever locked out. The name, country, flag, RSVP, sign-in link
---   and registration date are never touched (ADR-019).
+-- IF THE PROFILE ALREADY EXISTS
+--   Nothing happens. Like every seed, this only adds what's missing and never
+--   changes an existing row (ADR-019). To restore admin rights after a
+--   lockout, see SETUP_SUPABASE.md Step 7.
 -- =============================================================================
 
 begin;
 
-insert into public.users as existing (name, email, role)
+insert into public.users (name, email, role)
 values ('Wiley Page', 'gwpage@gmail.com', 'admin')
 -- users_email_lower_key is a unique index on lower(email), so this also finds
 -- the profile if its email was saved with different capitals.
-on conflict ((lower(email))) do update
-  set role = 'admin',
-      is_active = true,
-      deactivated_at = null
-  -- Skip the write when it's already an active admin, so a re-run changes nothing.
-  where existing.role <> 'admin' or not existing.is_active;
+on conflict ((lower(email))) do nothing;
 
 commit;
