@@ -158,16 +158,25 @@ as $$
   select m.id from public.messages m where m.user_id = pg_temp.seeded_id(p_author) and m.text = p_body
 $$;
 
--- True if the timestamp falls on this calendar date in UTC and in every
--- mainland US time zone, so the site shows the documented date whoever
--- views it.
+-- True if the timestamp falls between these calendar dates (inclusive) in UTC
+-- and in every mainland US time zone, so the site shows a documented date
+-- whoever views it.
+create function pg_temp.falls_between(p_at timestamptz, p_first date, p_last date)
+returns boolean
+language sql
+stable
+as $$
+  select bool_and((p_at at time zone tz)::date between p_first and p_last)
+  from unnest(array['UTC', 'America/Los_Angeles', 'America/Denver', 'America/Chicago', 'America/New_York']) tz
+$$;
+
+-- The same, for a single date.
 create function pg_temp.falls_on(p_at timestamptz, p_date date)
 returns boolean
 language sql
 stable
 as $$
-  select bool_and((p_at at time zone tz)::date = p_date)
-  from unnest(array['UTC', 'America/Los_Angeles', 'America/Denver', 'America/Chicago', 'America/New_York']) tz
+  select pg_temp.falls_between(p_at, p_date, p_date)
 $$;
 
 -- -----------------------------------------------------------------------------
@@ -392,6 +401,17 @@ begin
   assert bad is null,
     format('[likes] %s liked "%s" at %s, before it was posted (%s) or before they registered (%s)',
            bad.name, bad.text, bad.created_at, bad.posted_at, bad.registered_at);
+
+  -- All the 2025 activity happened during sign-ups, 15 January to 14 February.
+  select l.created_at, m.text, liker.name into bad
+  from public.message_likes l
+  join public.messages m on m.id = l.message_id
+  join public.users liker on liker.id = l.user_id
+  where m.user_id in (select pg_temp.seeded_ids())
+    and not pg_temp.falls_between(l.created_at, date '2025-01-15', date '2025-02-14')
+  limit 1;
+  assert bad is null,
+    format('[likes] %s liked "%s" at %s, outside 15 January to 14 February 2025', bad.name, bad.text, bad.created_at);
 end
 $$;
 
