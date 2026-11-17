@@ -467,7 +467,7 @@ CSS color tokens for both themes, flash-free initial theme selection, and a pers
 - **Status:** Complete
 - **Branch:** `issue/007-supabase-client-session`
 - **Spec Reference:** SPEC.md § Session Management, § Configuration, § Database & Auth
-- **PR:** —
+- **PR:** #9
 
 ### Description
 A single Supabase client configured from `CONFIG`, whose session is stored in long-lived cookies so it survives browser restarts.
