@@ -58,7 +58,7 @@ Site code uses **relative paths only** (no leading `/`), so the site works at `/
 
 3. Open the site at **http://localhost:8000/public/**.
 
-Logged out, it shows the header and a placeholder landing page. Placeholders in square brackets mark what later issues build. If it shows **"Board Game Olympics can't start"** instead, `config.js` is missing or wrong; the box says what to fix (see [Supabase client and sessions](#supabase-client-and-sessions)). Until ISSUE-012, signing in shows "You're not on the guest list" (see [App shell and routing](#app-shell-and-routing)).
+Logged out, it shows the landing page, with the event date from the dev database. Text in square brackets is a placeholder: copy still to come, or a part a later issue builds. If it shows **"Board Game Olympics can't start"** instead, `config.js` is missing or wrong; the box says what to fix (see [Supabase client and sessions](#supabase-client-and-sessions)). Until ISSUE-012, signing in shows "You're not on the guest list" (see [App shell and routing](#app-shell-and-routing)).
 
 ---
 
@@ -212,7 +212,7 @@ There are two themes: light, and dark ("Game Night Mode"). Their colours are CSS
 - **Log out** signs out of this browser only, not the person's other devices.
 - **Hiding a page is not security.** Row Level Security decides what anyone can read or change (ADR-017).
 
-**Filling in a page.** Each view in `app.js`'s `VIEWS` table starts as a placeholder naming the issue that builds it. Replace its `render` with your module's function. It gets `{ doc, account, route, retry }` and returns one element with a `data-view` attribute. `account.profile` holds the member's `id`, `name` and `role`. Member pages appear inside the shared layout, beside the sidebar (whose placeholder is in `showInMemberLayout()`).
+**Filling in a page.** Each view in `app.js`'s `VIEWS` table starts as a placeholder naming the issue that builds it. Replace its `render` with your module's function. It gets `{ doc, client, account, route, retry }` and returns one element with a `data-view` attribute. Build elements with `createElement` from `util.js`, which adds strings as text, never HTML. `account.profile` holds the member's `id`, `name` and `role`. Member pages appear inside the shared layout, beside the sidebar (whose placeholder is in `showInMemberLayout()`).
 
 **Seeing member pages on dev before ISSUE-012.** Until ISSUE-012's `claim_membership` exists, signing in never links you to a profile. To link one by hand, sign in on dev once, then run this in the dev SQL Editor (never prod):
 
@@ -295,4 +295,28 @@ Full setup is in [`SETUP_CLOUDFLARE.md`](./SETUP_CLOUDFLARE.md) and ADR-003. ISS
 
 ## Placeholder content
 
-`meeple.svg`, `default-avatar.png`, `logo-small.png` and `favicon.ico` in `public/assets/` are placeholders made for development. Replace them, and the placeholder copy, as items in [`CONTENT_CHECKLIST.md`](./CONTENT_CHECKLIST.md) are delivered.
+These images in `public/assets/` are placeholders made for development:
+- `meeple.svg`, `default-avatar.png`, `logo-small.png` and `favicon.ico`;
+- `images/logo-landing.png`, a 960 px copy of `logo.png` for the landing page (ADR-024);
+- `images/og-image.png`, the 1200 × 630 link-preview image.
+
+Replace them, and the placeholder copy, as items in [`CONTENT_CHECKLIST.md`](./CONTENT_CHECKLIST.md) are delivered.
+
+**Placeholder copy is marked** so none reaches production by accident (ADR-024):
+- On the page it reads "[Placeholder: …]".
+- In the source it carries `data-placeholder` (the meta tags in `index.html`), or `placeholder: true` (`LANDING_COPY` in `public/js/landing.js`).
+- To deliver a piece, replace the text and remove the mark.
+- To list what's left:
+  ```sh
+  grep -rn 'data-placeholder\|placeholder: true\|boardgameolympics.example' public/
+  ```
+  The domain `boardgameolympics.example` in the Open Graph tags is a stand-in until ISSUE-030.
+
+**If the logo changes**, regenerate the two derived images:
+```sh
+# The landing logo: 960 px wide, transparency kept.
+sips -s format png --resampleWidth 960 public/assets/images/logo.png --out public/assets/images/logo-landing.png
+```
+For `og-image.png`, make any 1200 × 630 PNG. The current one is a page showing the logo above the name on `#121212`, screenshotted with
+`"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --hide-scrollbars --force-device-scale-factor=1 --window-size=1200,630 --screenshot=og-image.png page.html`.
+If the landing logo's size changes, update `LANDING_LOGO_WIDTH` and `LANDING_LOGO_HEIGHT` in `landing.js`, and the `aspect-ratio` on `.landing-logo` in `styles.css`.

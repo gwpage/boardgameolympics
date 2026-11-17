@@ -655,32 +655,33 @@ Helpers that the feed, message board, sidebar, and admin all need. Putting them 
 ## [ISSUE-010] Public landing page
 
 - **Type:** Feature
-- **Status:** Open
+- **Status:** Complete
 - **Branch:** `issue/010-landing-page`
 - **Spec Reference:** SPEC.md § Logged-Out View (Public Landing Page); CONTENT_CHECKLIST.md § Landing Page, § Meta / SEO
-- **PR:** —
+- **PR:** #12
 
 ### Description
 The public advertisement for the event: same URL as the dashboard, shown when logged out.
 
 ### Acceptance Criteria
-- [ ] Shows logo, event name, tagline, date, location, description, and a login/register button.
-- [ ] The date comes from `get_public_event_info()`. Shows "Date TBA" if it's missing or the call fails.
-- [ ] Makes no queries beyond that RPC.
-- [ ] `<title>`, meta description, Open Graph and Twitter card tags, favicon, and apple-touch-icon are present.
-- [ ] Copy sits in clearly marked placeholders until CONTENT_CHECKLIST copy is delivered.
+- [x] Shows logo, event name, tagline, date, location, description, and a login/register button.
+- [x] The date comes from `get_public_event_info()`. Shows "Date TBA" if it's missing or the call fails.
+- [x] Makes no queries beyond that RPC.
+- [x] `<title>`, meta description, Open Graph and Twitter card tags, favicon, and apple-touch-icon are present.
+- [x] Copy sits in clearly marked placeholders until CONTENT_CHECKLIST copy is delivered.
 
 ### Tests
 - **Test file(s):** `tests/js/test_010_landing.js`
-- [ ] Renders the date from the RPC result; shows "Date TBA" on null or error.
-- [ ] Uses only `get_public_event_info` (a fake client records every call).
-- [ ] `public/index.html` head contains `title`, `meta description`, `og:title`, `og:description`, `og:image`, `og:url`.
-- [ ] The login button opens the login options.
+- [x] Renders the date from the RPC result; shows "Date TBA" on null or error.
+- [x] Uses only `get_public_event_info` (a fake client records every call).
+- [x] `public/index.html` head contains `title`, `meta description`, `og:title`, `og:description`, `og:image`, `og:url`.
+- [x] The login button opens the login options.
 
 ### Tasks
-- [ ] Write tests
-- [ ] Landing markup and styles
-- [ ] Meta and OG tags
+- [x] Write tests
+- [x] Landing markup and styles
+- [x] Meta and OG tags
+- [x] ADR: placeholders, link previews, images → ADR-024
 
 ### Notes
 - Depends on: 003 (RPC), 009.
@@ -689,6 +690,28 @@ The public advertisement for the event: same URL as the dashboard, shown when lo
   - Replace the `VIEW.LANDING` placeholder in `app.js`'s `VIEWS` table with your render function. It gets `{ doc, account, route, retry }` and must return one element with `data-view="landing"`, which test_009 looks for.
   - The landing view shows on every route while logged out, and the hash is left alone. Don't add a header, logo or theme toggle: they're in `index.html`'s static header.
   - Show the date with `formatEventDate()` (ISSUE-008).
+- As built (ADR-024, README § Placeholder content):
+  - **`public/js/landing.js`** (new; the spec deviation is noted in its header) renders the logo, event name, tagline, date, location, description and "Log in or register". `app.js`'s `VIEWS` uses it, and now passes `client` in every view's context.
+  - **Date:** `rpc('get_public_event_info').maybeSingle()`, formatted with `formatEventDate` in a `<time datetime>`. No row or no date gives "Date TBA" quietly. An error or a malformed date gives "Date TBA" and is logged. The line reads "Checking the date…" with `aria-busy` until the call answers.
+  - **Placeholders:** `LANDING_COPY` flags tagline, location and description as placeholders. They show as "[Placeholder: …]" and carry `data-placeholder`, as do the placeholder meta tags.
+  - **`index.html` head:**
+    - the description, `og:type`, `og:site_name`, `og:title`, `og:description`, `og:url`, `og:image` with width, height and alt text, and `twitter:card` = `summary_large_image`;
+    - `og:url` and `og:image` use the stand-in domain `boardgameolympics.example` until ISSUE-030;
+    - `<title>` must equal `SITE_NAME` (tested).
+  - **Images:**
+    - `logo-landing.png` is `logo.png` resized to 960 × 640: 303 KB instead of 2.4 MB, with transparency kept. CSS crops the empty bottom third.
+    - `og-image.png` is a 1200 × 630 placeholder rendered with headless Chrome.
+    - The README has the commands to regenerate both.
+  - **Login:** a disclosure button (`aria-expanded`, `aria-controls`) opening `#login-options`, which holds an ISSUE-011 placeholder. It's the site's one filled button: large bold text, which meets WCAG's large-text contrast in both themes.
+  - `createElement` moved from `app.js` to `util.js`, with tests in test_008.
+- Results:
+  - `tests/run.sh`: PASS 228/228 (24 new) in each of America/Chicago, Pacific/Kiritimati and Etc/GMT+12. Five back-to-back runs (15 suite runs) were all green.
+  - Mutation check: 56 deliberate breaks to `landing.js`, `app.js`, `util.js`, `index.html` and the CSS. All 56 were caught.
+    - While planning them, I found that "no event yet" would still have passed if it went through the error path. Those tests now require that nothing is logged.
+  - Checked outside the suite:
+    - In headless Chrome, the real page on dev shows "Saturday, February 15, 2025" from dev's `get_public_event_info`. Signed out, that call (a CORS preflight, then the POST) is the only Supabase traffic.
+    - Six direct loads gave identical renders with no console output.
+    - It was checked at 360 px and on desktop, in both themes, with the login panel open and closed.
 
 ---
 
@@ -736,6 +759,9 @@ Login UI and flows for Google, Facebook, and email magic link, plus logout. Invi
   - Logout is already wired: `#logout-button` calls `signOut({ scope: 'local' })` (this browser only), clears the hash, then reads the session again. test_009 covers the button. Add the "no `sb-` cookies left" check here, and move the handler into `auth.js` if it grows.
   - A failed sign-in comes back as `#error=…&error_code=…&error_description=…`. supabase-js leaves it in the URL. `startApp()` removes it and keeps it as `callbackError` (`{ error, code, description }`). To show the friendly message, add `callbackError` to the context `show()` passes to views, and map `code` with `mapAuthError`.
   - Build redirect URLs from `location.origin + location.pathname`, so they work at `/public/` locally. The router keeps `?invite=` through every URL rewrite.
+- From ISSUE-010 (ADR-024):
+  - The landing page's "Log in or register" button (`.landing-login-button`) opens `#login-options` in `landing.js`. Replace `renderLoginOptions(doc)` there with the real options from `auth.js`.
+  - For a failed sign-in, render the `callbackError` message on the landing page and open the panel, so the visitor can try again straight away.
 
 ---
 
@@ -797,6 +823,7 @@ Turn a signed-in auth user into a member, or reject them. This is where invitati
   - The not-invited view exists: `data-view="not_invited"`, with `data-reason` set to the state. Add the sign-out to it.
   - Replace the `VIEW.REGISTRATION` placeholder. After the form saves, call `retry()` from the view context to reload the account, which then shows the dashboard.
   - `?invite=TOKEN` is in the query string, which the router never touches. The hash is cleared on logout.
+- From ISSUE-010: a visitor arriving with `?invite=` sees the landing page like anyone else. Consider opening the login panel automatically and saying they've been invited (`landing.js`'s `renderLogin`).
 
 ---
 
@@ -1466,6 +1493,7 @@ Make the whole site work well on phones and tablets, and be usable with a keyboa
   The Boss will need to pick adjusted values.
 
 - From ISSUE-009: because of the dark `--btn-primary` ratio above, ISSUE-009's buttons (Log out, Try again) are outlined rather than filled. Fill them if the palette changes. The header, nav and message views were checked at 360 px in both themes.
+- From ISSUE-010: in the dark theme, the logo's black ring nearly disappears against the background. That's the artwork, not the CSS; raise it with the Boss when the final logo is delivered.
 ---
 
 ## [ISSUE-030] Production deployment
@@ -1522,6 +1550,9 @@ Stand up the production Supabase project and the Cloudflare Pages site on the cu
 
 - Apply migrations per SETUP_SUPABASE.md Step 6. Before any invitations go out, the admin sets the event date and theme, which creates the first `event_settings` row. Rows created earlier would be stamped with the calendar year (ADR-008).
 - From ISSUE-005: on prod, apply **only** `db/seed/001_admin.sql` (SETUP_SUPABASE.md Step 7). Never apply `002_test_data_2025.sql`. Its guard can't recognise a new prod project that has no event yet. Then sign in as gwpage@gmail.com to link the admin profile.
+- From ISSUE-010 (ADR-024):
+  - Replace the stand-in domain `boardgameolympics.example` in `index.html`'s `og:url` and `og:image` with the real one.
+  - Before going live, nothing marked `data-placeholder` or `placeholder: true` should remain. README § Placeholder content has the `grep`; consider making it a deploy check.
 ---
 
 ## [ISSUE-031] Supabase keep-alive
