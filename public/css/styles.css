@@ -169,6 +169,47 @@ a {
   margin-top: 0.5rem;
 }
 
+/* === Infinite scroll status (ISSUE-008) ===
+ *
+ * js/util.js's createInfiniteScroll() puts .scroll-status on the sentinel
+ * element after the feed and message board lists. It shows "Loading…", an
+ * error with a Try again button, or the empty or end text, and is empty in
+ * between. Its current state is in data-state.
+ */
+
+.scroll-status {
+  /* Gives the IntersectionObserver a box to watch even while it's empty. */
+  min-height: 1px;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.scroll-status-message {
+  margin: 0.75rem 0;
+}
+
+.scroll-status-retry {
+  /* 44px touch target, as for the theme toggle. */
+  min-height: 2.75rem;
+  margin-bottom: 0.75rem;
+  padding: 0 1rem;
+  font: inherit;
+  color: var(--text-link);
+  background-color: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  cursor: pointer;
+}
+
+.scroll-status-retry:hover {
+  background-color: var(--bg-subtle);
+}
+
+.scroll-status-retry:focus-visible {
+  outline: 2px solid var(--text-link);
+  outline-offset: 2px;
+}
+
 /* === Landing page (ISSUE-010) === */
 
 /* === Login & registration (ISSUE-011, ISSUE-012) === */
