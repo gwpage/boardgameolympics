@@ -520,42 +520,70 @@ A single Supabase client configured from `CONFIG`, whose session is stored in lo
 ## [ISSUE-008] Shared UI utilities
 
 - **Type:** Feature
-- **Status:** Open
+- **Status:** Complete
 - **Branch:** `issue/008-shared-utilities`
 - **Spec Reference:** SPEC.md § Message Board (pagination), § Profile Rules (avatar), § Project Structure ("split it further")
-- **PR:** —
+- **PR:** #10
 
 ### Description
 Helpers that the feed, message board, sidebar, and admin all need. Putting them in one early issue lets those issues proceed in parallel.
 
 ### Acceptance Criteria
-- [ ] `public/js/util.js` exports:
+- [x] `public/js/util.js` exports:
   - `escapeHtml`
   - `formatRelativeTime`
   - `formatEventDate`
   - `createInfiniteScroll` (IntersectionObserver batch loader)
-  - keyset cursor helpers
+  - keyset cursor helpers → `applyKeysetPage`, `keysetCursor`
   - `avatarUrl`
-- [ ] Spec deviation (new file) is noted in its header comment.
+- [x] Spec deviation (new file) is noted in its header comment.
 
 ### Tests
 - **Test file(s):** `tests/js/test_008_util.js`
-- [ ] `escapeHtml` escapes `& < > " '`.
-- [ ] `formatRelativeTime`: 30 s → "just now", 5 min → "5 minutes ago", 2 h → "2 hours ago", 1 day → "yesterday", over 7 days → a calendar date.
-- [ ] `formatEventDate('2025-02-15')` → "Saturday, February 15, 2025" in every timezone (avoids the date-only UTC off-by-one).
-- [ ] Infinite scroll:
+- [x] `escapeHtml` escapes `& < > " '`.
+- [x] `formatRelativeTime`: 30 s → "just now", 5 min → "5 minutes ago", 2 h → "2 hours ago", 1 day → "yesterday", over 7 days → a calendar date.
+- [x] `formatEventDate('2025-02-15')` → "Saturday, February 15, 2025" in every timezone (avoids the date-only UTC off-by-one).
+- [x] Infinite scroll:
   - loads the first batch, and the next when the sentinel becomes visible
   - stops when a batch is short
   - never runs two loads concurrently
   - surfaces errors with a retry
-- [ ] `avatarUrl` returns the default avatar for a null flag and the flag URL otherwise.
+- [x] `avatarUrl` returns the default avatar for a null flag and the flag URL otherwise.
 
 ### Tasks
-- [ ] Write tests
-- [ ] Implement `public/js/util.js`
+- [x] Write tests
+- [x] Implement `public/js/util.js`
+- [x] ADR: dates, keyset pagination, infinite scroll → ADR-022
 
 ### Notes
 - Depends on: 001.
+- As built (ADR-022, README § Shared UI helpers):
+  - Beyond the AC:
+    - `formatFullTimestamp`, for the "full date on hover" that ISSUE-016 needs.
+    - `DEFAULT_BATCH_SIZE` (20), `INFINITE_SCROLL_TEXT` and `DEFAULT_AVATAR_URL`.
+  - **Dates.** Formatting is always `en-US`.
+    - The event date is built and formatted in UTC, so no time zone is involved.
+    - Timestamps show in the viewer's zone. Text that isn't ISO 8601 with a "T" and an offset is rejected, because browsers parse other formats differently. A date-only value gets an error pointing to `formatEventDate`.
+  - **Relative time** counts calendar days: something from 11 pm two nights ago is "2 days ago", even after only 30 hours. Under 24 hours it's always hours, even across midnight. A future time (the viewer's clock is behind) reads "just now". From 7 days back it shows "Feb 8", with the year added if it differs.
+  - **"Every timezone":** `tests/run.sh` now runs the whole suite three times: in the machine's zone, at UTC+14 and at UTC−12. A test fails if Chrome isn't in the zone requested.
+  - **Keyset helpers.** `applyKeysetPage(query, { after, timeColumn, limit })` orders by time desc, then id desc, and filters on `or=(t.lt."T",and(t.eq."T",id.lt."ID"))`.
+    - The cursor keeps the time string exactly as PostgREST sent it, microseconds included.
+    - The time and id are checked before being spliced into the filter.
+  - **Infinite scroll.** One sentinel element both triggers loading and shows the status: loading, error with Try again, or empty/end text. It gets the `scroll-status` class and `data-state`.
+    - After every batch the sentinel is re-observed, so a screen the batch didn't fill keeps loading.
+    - Errors stop automatic loading until Try again.
+    - `destroy()` drops a batch still in flight.
+  - **`avatarUrl`** accepts only `https://` URLs (the DB's own rule) and logs anything else. The default avatar URL is resolved from `util.js`'s location, so it works at `/`, `/public/` and in tests.
+- Results:
+  - `tests/run.sh`: PASS 141/141 (56 new) in each of America/Chicago, Pacific/Kiritimati and Etc/GMT+12. Five back-to-back runs (15 suite runs) were all green, including the test that uses a real IntersectionObserver.
+  - Mutation check: 71 different breaks to `util.js`, the CSS and `run.sh`, all of which failed the suite.
+    - Building the event date at local midnight failed **only** at UTC+14. Formatting it in the local zone failed only in the two western zones. One time zone wouldn't have caught both.
+  - Checked outside the suite:
+    - The pinned supabase-js 2.118.0 builder turns `applyKeysetPage` into `order=created_at.desc,id.desc&limit=20&or=(…)`, with `+` encoded.
+    - Dev PostgREST parses that filter. A signed-out request reaches the permission check, while a malformed control gets `PGRST100`.
+    - Postgres 17's JSON timestamps match the accepted format.
+    - Safari's engine (JavaScriptCore) parses microsecond timestamps.
+    - The status box was checked in both themes at 360 px.
 
 ---
 
@@ -769,6 +797,7 @@ A sidebar on every authenticated page with the event date (prominent), theme tit
 ### Notes
 - Depends on: 003, 008, 009.
 - From ISSUE-003: members can read every `event_settings` row. Fetch the current one with `select('event_date,theme_title,theme_desc').order('year', {ascending: false}).limit(1).maybeSingle()`.
+- From ISSUE-008 (ADR-022): show the date with `formatEventDate(settings.event_date)`, which gives "Saturday, February 15, 2025" in every time zone. Never use `new Date(event_date)`, which is the day before in the Americas. Escape title and description with `escapeHtml`, or set `textContent`.
 
 ---
 
@@ -883,6 +912,11 @@ Post and read plain-text messages, newest first, with infinite scroll.
 ### Notes
 - Depends on: 008, 012.
 - From ISSUE-003 (ADR-017): RLS already limits members to the current year, but still filter on `event_year` so the query uses the index. Embed the author with explicit columns, e.g. `author:users(id,name,flag_url)`, as PostgREST's default left embed. A null author means a removed user: render "Former member" with the default avatar. Inserts send only `user_id` and `text`. The year and timestamp come from defaults, and sending them is refused.
+- From ISSUE-008 (ADR-022, README § Shared UI helpers):
+  - Paging: `createInfiniteScroll({ sentinel, loadBatch, renderBatch, text: { empty: … } })`. In `loadBatch(lastRow, batchSize)`, call `applyKeysetPage(query, { after: lastRow, limit: batchSize })`, which does the `(created_at, id)` order, limit and cursor. Throw the Supabase `error`, and the sentinel shows it with Try again. Call `destroy()` when the view goes away.
+  - Times: `formatRelativeTime(created_at)`, plus `formatFullTimestamp(created_at)` for the hover title. Avatars: `avatarUrl(author?.flag_url)`.
+  - Pass rows on exactly as Supabase returns them. The cursor needs the raw `created_at` string, which has microseconds.
+  - If the board was empty, the sentinel shows the empty text. When the first post is prepended, clear it with `sentinel.replaceChildren()`, or hide it with CSS (`.scroll-status[data-state="done"]` after a non-empty list).
 
 ---
 
@@ -958,6 +992,10 @@ A reverse-chronological feed of country claims and new messages, which gives the
 ### Notes
 - Depends on: 003, 008, 009.
 - From ISSUE-003 (ADR-017): with `security_invoker = true` the view runs under the caller's RLS, so current-year filtering and the membership gate come for free. **Left** join to `users` (members can't see deactivated profiles) and render a null actor as "Former member". An inner join would silently drop removed users' items.
+- From ISSUE-008 (ADR-022):
+  - Give the view one time column, e.g. `occurred_at`, and an `id` column holding each source row's uuid. Then use `applyKeysetPage(query, { after: lastRow, timeColumn: 'occurred_at', limit: batchSize })`.
+  - Ties on time are broken by `id`. Claim and message ids are both random uuids, so they never collide. test_008 already pages 45 mixed, tied rows through the helper without gaps or repeats; this issue's cursor test can reuse that approach.
+  - Use `createInfiniteScroll`, `formatRelativeTime` and `formatFullTimestamp` as in ISSUE-016. Escape country names and previews with `escapeHtml`.
 
 ---
 
@@ -1190,6 +1228,7 @@ View, edit, register on behalf of, and remove users.
 - Depends on: 015, 020.
 - From ISSUE-003: `admin_list_users()` already exists. It's admin-checked, returns every column including email and `is_active`, and can be filtered and sorted through PostgREST. test_003 covers "returns emails to the admin, denied to members"; this issue only needs to extend it. The admin edits name, country, flag and RSVP with plain updates, but `role`, `email`, `is_active`/`deactivated_at` and inserts are refused by column grants, so `admin_create_user`, deactivate/reactivate and any role change must be `SECURITY DEFINER` RPCs.
 - From ISSUE-004: the storage policies already let the admin upload, replace and delete files in any member's folder (`flags/{that member's users.id}/…`). Reuse ISSUE-015's component with the target member's id. No new policy is needed.
+- From ISSUE-008: show each user's picture with `avatarUrl(user.flag_url)`, and escape names, emails and countries with `escapeHtml`, or set `textContent`.
 
 ---
 

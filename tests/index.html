@@ -5,7 +5,9 @@
   Manual run:   from the repo root run `python3 -m http.server 8000`,
                 then open http://localhost:8000/tests/
   Headless run: tests/run.sh. It opens this page as /tests/?report, which makes
-                the page POST its results to tests/server.py.
+                the page POST its results to tests/server.py. It runs the suite
+                once per time zone, adding &tz=<zone> to say which one it set
+                (ADR-022); test_008 checks the browser really is in that zone.
 
   data-test-page tells app modules they are being imported for testing, so
   importing public/js/app.js never starts the real app.
@@ -85,6 +87,7 @@
       './js/test_001_harness.js',
       './js/test_006_theme.js',
       './js/test_007_cookie_storage.js',
+      './js/test_008_util.js',
     ];
 
     for (const path of TEST_MODULES) {
@@ -117,7 +120,8 @@
         const response = await fetch(window.__REPORT_ENDPOINT, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ status, summary, lines }),
+          // run.sh prints the zone beside the summary, so each run's coverage is visible.
+          body: JSON.stringify({ status, summary, lines, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
         });
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);
