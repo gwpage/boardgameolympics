@@ -8,8 +8,10 @@
  *
  * WHAT IT SHOWS
  *   The logo, event name, tagline, event date, location, description, and a
- *   "Log in or register" button that opens the login options. Nothing else:
- *   no feed, no messages, no member data.
+ *   "Log in or register" button that opens the login options (auth.js,
+ *   ISSUE-011). Nothing else: no feed, no messages, no member data.
+ *   After a failed sign-in (an expired magic link, say), the options start
+ *   open with the reason, so the visitor can try again straight away.
  *
  * THE DATE
  *   Signed-out visitors can't read any table. The one thing they can call is
@@ -26,13 +28,14 @@
  *
  * HOW IT FITS
  *   app.js's VIEWS table calls renderLanding() with the view context
- *   ({ doc, client, … }). The header, logo link and theme toggle are static in
+ *   ({ doc, client, callbackError, inviteToken, baseUrl, … }). The header, logo link and theme toggle are static in
  *   index.html, not here. The meta and Open Graph tags are in index.html too,
  *   because link previews and search engines don't run JavaScript.
  */
 
 import { createElement as create, formatEventDate } from './util.js';
 import { VIEW } from './router.js';
+import { renderLoginOptions, siteBaseUrl } from './auth.js';
 
 /** Shown when there's no event date to show. */
 export const DATE_TBA = 'Date TBA';
@@ -99,10 +102,15 @@ export async function loadPublicEventDate(client) {
  * Renders the landing page. The date starts as "Checking the date…" and is
  * filled in when get_public_event_info() answers.
  *
- * @param {{doc: Document, client: object}} context  From app.js's view context.
+ * @param {object} context  From app.js's view context.
+ * @param {Document} context.doc
+ * @param {object} context.client  The Supabase client.
+ * @param {object|null} [context.callbackError]  A failed sign-in from the URL: opens the login options with the reason.
+ * @param {string|null} [context.inviteToken]  The invite token from ?invite=, carried through sign-in.
+ * @param {string} [context.baseUrl]  Where sign-ins come back to (default: this page).
  * @returns {HTMLElement}  A <section data-view="landing">.
  */
-export function renderLanding({ doc, client }) {
+export function renderLanding({ doc, client, callbackError = null, inviteToken = null, baseUrl = siteBaseUrl(globalThis.location.href) }) {
   const dateLine = create(doc, 'p', { class: 'landing-date', 'aria-busy': 'true' }, DATE_LOADING);
   loadPublicEventDate(client).then(({ date, text }) => {
     dateLine.replaceChildren(date ? create(doc, 'time', { datetime: date }, text) : text);
@@ -127,7 +135,7 @@ export function renderLanding({ doc, client }) {
     dateLine,
     copyElement(doc, 'p', 'location', { class: 'landing-location' }),
     copyElement(doc, 'p', 'description', { class: 'landing-description' }),
-    renderLogin(doc)
+    renderLogin(doc, { client, callbackError, inviteToken, baseUrl })
   );
 }
 
@@ -145,13 +153,20 @@ function copyElement(doc, tag, name, attributes) {
 /**
  * The "Log in or register" button and the panel it opens: a disclosure, so
  * the options appear right below it and the button says whether they're open.
+ * It starts open when there's a failed sign-in to explain.
  */
-function renderLogin(doc) {
-  const options = create(doc, 'div', { id: LOGIN_OPTIONS_ID, class: 'login-options', hidden: true }, renderLoginOptions(doc));
+function renderLogin(doc, { client, callbackError, inviteToken, baseUrl }) {
+  const startOpen = Boolean(callbackError);
+  const options = create(
+    doc,
+    'div',
+    { id: LOGIN_OPTIONS_ID, class: 'login-options', hidden: !startOpen },
+    renderLoginOptions({ doc, client, inviteToken, baseUrl, callbackError })
+  );
   const button = create(
     doc,
     'button',
-    { type: 'button', class: 'landing-login-button', 'aria-expanded': 'false', 'aria-controls': LOGIN_OPTIONS_ID },
+    { type: 'button', class: 'landing-login-button', 'aria-expanded': String(startOpen), 'aria-controls': LOGIN_OPTIONS_ID },
     'Log in or register'
   );
   button.addEventListener('click', () => {
@@ -160,11 +175,6 @@ function renderLogin(doc) {
     button.setAttribute('aria-expanded', String(opening));
   });
   return create(doc, 'div', { class: 'landing-login' }, button, options);
-}
-
-/** What the login panel holds. ISSUE-011 replaces this with the real options from auth.js. */
-function renderLoginOptions(doc) {
-  return create(doc, 'p', { class: 'placeholder' }, '[Placeholder: Google, Facebook and email sign-in, built in ISSUE-011]');
 }
 
 /** Object.freeze, all the way down, so the copy can't be changed at run time by mistake. */

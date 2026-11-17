@@ -10,14 +10,16 @@
  *      route or the sign-in changes:
  *        - loading:      "Loading…" until the session is known, so a
  *                        signed-in member never sees the landing page flash up;
- *        - landing:      logged out, on every route (landing.js, ISSUE-010);
+ *        - landing:      logged out, on every route (landing.js, ISSUE-010),
+ *                        with the login options (auth.js, ISSUE-011);
  *        - registration: invited, signed in, form not filled in yet (ISSUE-012);
  *        - not invited:  signed in, but not a member (or deactivated);
  *        - unavailable:  Supabase couldn't be reached, with Try again;
  *        - member pages: home (#/), rules, profile and admin, inside one
  *                        layout with the sidebar (ISSUE-013).
  *      The header (static in index.html, outside #app) gets the nav links for
- *      members and the Log out button for anyone signed in.
+ *      members and the Log out button for anyone signed in. Log out calls
+ *      auth.js's logOut(), then reads the session again.
  *
  * ORDER MATTERS ON A SIGN-IN RETURN
  *   A magic link or OAuth sign-in comes back with the session in the URL
@@ -25,8 +27,10 @@
  *   saves the session, and clears the fragment. So startApp() doesn't read or
  *   change the URL until `await client.auth.getSession()` has returned, which
  *   waits for that. A failed sign-in (#error=…) is left in the URL by
- *   supabase-js; startApp() keeps the error (callbackError, for ISSUE-011's
- *   message) and removes the fragment. Neither is ever treated as a route.
+ *   supabase-js; startApp() keeps the error (callbackError) and removes the
+ *   fragment. Neither is ever treated as a route. The error goes to the next
+ *   view drawn, once: the landing page explains it (auth.js). After that it's
+ *   old news, so redrawing on a hashchange doesn't bring it back.
  *
  * WHO IS A MEMBER (until ISSUE-012)
  *   loadMembership() asks the database for the caller's linked profile. Until
@@ -52,6 +56,7 @@ import { initTheme } from './theme.js';
 import { SetupError, getSupabase, renderSetupError } from './supabase.js';
 import { ACCOUNT, VIEW, isAuthCallback, navLinks, parseRoute, readAuthCallbackError, resolveView } from './router.js';
 import { renderLanding } from './landing.js';
+import { logOut as logOutThisBrowser, parseInviteToken, siteBaseUrl } from './auth.js';
 import { createElement as create } from './util.js';
 
 /** The site's name: the whole <title> on the home and landing pages, the suffix elsewhere. */
@@ -80,12 +85,6 @@ const AUTH_EVENTS_THAT_CHANGE_WHO = new Set(['SIGNED_IN', 'SIGNED_OUT']);
  * supabase-js keeps the session to try again later, so it isn't a sign-out.
  */
 const RETRYABLE_AUTH_ERROR_NAME = 'AuthRetryableFetchError';
-
-/**
- * Log out of this browser only. supabase-js's default ("global") would also
- * sign the person out on their phone and every other device (ADR-023).
- */
-const SIGN_OUT_OPTIONS = Object.freeze({ scope: 'local' });
 
 /** The profile columns the shell needs: who it is, and whether they're the admin. */
 const MEMBER_PROFILE_COLUMNS = 'id, name, role';
@@ -238,6 +237,8 @@ export async function startApp({
   let loading = false;
   let stopped = false;
   let callbackError = null;
+  // The same error until a view has shown it; then null, so it's explained once.
+  let unshownCallbackError = null;
   let subscription = null;
   // Each load gets a number. A load that finishes after a newer one started is
   // stale and is dropped, so the latest sign-in state always wins.
@@ -258,6 +259,7 @@ export async function startApp({
     const error = readAuthCallbackError(hash);
     if (error) {
       callbackError = error;
+      unshownCallbackError = error;
       console.warn('Sign-in: the sign-in link or provider returned an error.', error);
     } else {
       // supabase-js clears a session fragment it accepts, so one still here was
@@ -280,9 +282,24 @@ export async function startApp({
     logoutButton.hidden = true;
   };
 
-  const show = (view, route, { moveFocus }) => {
+  /**
+   * What the sign-in views need from the URL: a failed sign-in to explain, the
+   * invite token, and where sign-ins should come back to (auth.js).
+   * Only read after getSession() has returned (see ORDER MATTERS above).
+   */
+  const takeSignInContext = () => {
+    const signIn = {
+      callbackError: unshownCallbackError,
+      inviteToken: parseInviteToken(win.location.search),
+      baseUrl: siteBaseUrl(win.location.href),
+    };
+    unshownCallbackError = null;
+    return signIn;
+  };
+
+  const show = (view, route, { moveFocus, signIn = {} }) => {
     const details = VIEWS[view];
-    const content = details.render({ doc: appRoot.ownerDocument, client, account, route, retry: refresh });
+    const content = details.render({ doc: appRoot.ownerDocument, client, account, route, retry: refresh, ...signIn });
     if (details.memberLayout) {
       showInMemberLayout(appRoot, content);
     } else {
@@ -309,7 +326,7 @@ export async function startApp({
     }
     renderNav(nav, route, account);
     logoutButton.hidden = !account.session;
-    show(view, route, { moveFocus });
+    show(view, route, { moveFocus, signIn: takeSignInContext() });
   };
 
   /** Works out who the visitor is (again), showing "Loading…" meanwhile, then renders. */
@@ -352,18 +369,11 @@ export async function startApp({
 
   const logOut = async () => {
     logoutButton.disabled = true;
-    try {
-      const { error } = await client.auth.signOut(SIGN_OUT_OPTIONS);
-      if (error) {
-        // supabase-js deletes the session from this browser even when the server call fails.
-        console.warn("Log out: Supabase didn't confirm, but this browser is signed out.", error);
-      }
-    } catch (error) {
-      console.error('Log out failed. Checking whether this browser is still signed in.', error);
-    } finally {
-      logoutButton.disabled = false;
-    }
+    // Never throws; deletes the session cookies, and logs any failure.
+    await logOutThisBrowser(client);
+    logoutButton.disabled = false;
     replaceHash(''); // Start the next visit from the bare address.
+    // Shows what's actually true now: the landing page, unless signing out failed.
     await refresh();
   };
   const onLogoutClick = () => {
@@ -430,7 +440,9 @@ export function renderNav(nav, route, account) {
 
 /*
  * Each view's render function gets { doc, client, account, route, retry } and
- * returns one element marked with data-view. Text always goes in as text
+ * returns one element marked with data-view. Views drawn after the visitor is
+ * known also get { callbackError, inviteToken, baseUrl } for signing in
+ * (takeSignInContext in startApp). Text always goes in as text
  * nodes, never as HTML (util.js's createElement).
  *
  * Most are placeholders until their issue lands. To take one over, import the
