@@ -84,24 +84,274 @@ a {
   color: var(--text-link);
 }
 
+/*
+ * The hidden attribute must always win. Without this, any rule that sets
+ * display (flex, inline-flex, …) on an element would show it even while
+ * hidden: the header nav and Log out button ship hidden until app.js knows
+ * who the visitor is.
+ */
+[hidden] {
+  display: none !important;
+}
+
+/* Hidden on screen but still read by screen readers (e.g. the dashboard's h1). */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Headings that app.js focuses after navigation (tabindex="-1") don't need a focus ring: they aren't controls. */
+h1[tabindex="-1"]:focus {
+  outline: none;
+}
+
 /* === Layout: header, sidebar, main (ISSUE-009, ISSUE-013) === */
 
 /*
  * The site header is static markup in index.html, outside #app, so it's on
  * every view (landing, loading, dashboard). ISSUE-006 added it for the theme
- * toggle; ISSUE-009 adds the logo, nav and logout.
+ * toggle. ISSUE-009 added the logo, the nav (members only) and Log out
+ * (anyone signed in).
+ *
+ * Wide screens: logo, nav, then the toggle and Log out on the right.
+ * Narrow screens: the nav wraps onto its own row under the others.
  */
 .site-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  justify-content: flex-end;
-  gap: 0.5rem;
+  gap: 0.25rem 0.5rem;
   /* Room for the 44px toggle, so revealing it after scripts load doesn't shift the page. */
   min-height: 3.75rem;
-  padding: 0 1rem;
+  padding: 0.5rem 1rem;
   box-sizing: border-box;
   background-color: var(--bg-card);
   border-bottom: 1px solid var(--border);
+}
+
+.site-logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  /* Pushes the nav, toggle and Log out to the right when the nav is hidden. */
+  margin-right: auto;
+  color: var(--text-primary);
+  font-weight: 700;
+  text-decoration: none;
+  border-radius: 0.5rem;
+}
+
+.site-logo img {
+  display: block;
+  width: 2.5rem;
+  height: 2.5rem;
+}
+
+.site-logo:focus-visible,
+.site-nav a:focus-visible,
+.logout-button:focus-visible,
+.app-message-button:focus-visible {
+  outline: 2px solid var(--text-link);
+  outline-offset: 2px;
+}
+
+.site-nav {
+  /* Between the logo and the buttons, links aligned to its left. */
+  flex: 1 1 auto;
+}
+
+/* With the nav showing, the logo no longer needs to push things right: the nav fills the gap. */
+.site-header:has(.site-nav:not([hidden])) .site-logo {
+  margin-right: 0;
+}
+
+.site-nav-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.site-nav a {
+  display: inline-flex;
+  align-items: center;
+  /* 44px touch target. */
+  min-height: 2.75rem;
+  padding: 0 0.75rem;
+  color: var(--text-secondary);
+  text-decoration: none;
+  border-radius: 0.5rem;
+}
+
+.site-nav a:hover {
+  color: var(--text-primary);
+  background-color: var(--bg-subtle);
+}
+
+/* The page showing: darker text and a bar underneath. */
+.site-nav a[aria-current="page"] {
+  color: var(--text-primary);
+  font-weight: 600;
+  box-shadow: inset 0 -3px 0 var(--btn-primary);
+}
+
+.logout-button {
+  min-height: 2.75rem;
+  padding: 0 1rem;
+  font: inherit;
+  color: var(--text-primary);
+  background-color: transparent;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  cursor: pointer;
+}
+
+.logout-button:hover {
+  background-color: var(--bg-subtle);
+}
+
+.logout-button:disabled {
+  color: var(--text-muted);
+  cursor: progress;
+}
+
+@media (max-width: 40rem) {
+  /* The nav takes a row of its own, under the logo and buttons. */
+  .site-nav {
+    order: 1;
+    flex-basis: 100%;
+  }
+
+  .site-header:has(.site-nav:not([hidden])) .site-logo {
+    margin-right: auto;
+  }
+}
+
+@media (max-width: 26rem) {
+  /* Phones: the logo alone, so the toggle and Log out still fit. The name stays for screen readers. */
+  .site-logo-text {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+}
+
+/*
+ * Member pages (home, rules, profile, admin) sit in one layout: the sidebar
+ * (event date and theme, ISSUE-013) beside the page on wide screens, above it
+ * on narrow ones. app.js builds it once and swaps only .member-page when the
+ * route changes.
+ */
+.member-layout {
+  display: grid;
+  gap: 1.5rem;
+  box-sizing: border-box;
+  width: min(72rem, 100% - 2rem);
+  margin: 1.5rem auto;
+}
+
+@media (min-width: 48rem) {
+  .member-layout {
+    grid-template-columns: 16rem minmax(0, 1fr);
+    align-items: start;
+  }
+}
+
+.sidebar {
+  padding: 1rem 1.25rem;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+}
+
+.member-page {
+  /* Lets long words wrap instead of widening the grid column. */
+  min-width: 0;
+}
+
+.member-page h1 {
+  margin-top: 0;
+}
+
+.dashboard {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.dashboard-section {
+  padding: 1rem 1.25rem;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+}
+
+.dashboard-section h2 {
+  margin-top: 0;
+  font-size: 1.25rem;
+}
+
+/* "Loading…" while app.js works out who the visitor is. */
+.app-status {
+  margin: 3rem 1rem;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+/*
+ * A single centred card: the landing placeholder, registration, "not on the
+ * guest list" and "can't reach" views. Same shape as .setup-error.
+ */
+.app-message {
+  box-sizing: border-box;
+  width: min(40rem, 100% - 2rem);
+  margin: 2rem auto;
+  padding: 1rem 1.25rem;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  overflow-wrap: anywhere;
+}
+
+.app-message h1 {
+  margin-top: 0;
+  font-size: 1.5rem;
+}
+
+/*
+ * Outlined, like Log out. COLORS.md has no text colour for filled buttons, and
+ * neither white nor the card colour reaches 4.5:1 on the dark theme's blue.
+ */
+.app-message-button {
+  min-height: 2.75rem;
+  padding: 0 1.25rem;
+  font: inherit;
+  color: var(--text-primary);
+  background-color: transparent;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  cursor: pointer;
+}
+
+.app-message-button:hover {
+  background-color: var(--bg-subtle);
+}
+
+/* Marks content a later issue builds. Removed issue by issue. */
+.placeholder {
+  color: var(--text-secondary);
+  font-style: italic;
 }
 
 /* === Theme toggle (ISSUE-006) === */
