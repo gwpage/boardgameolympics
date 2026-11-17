@@ -489,3 +489,44 @@ Format: `~/.claude/rules/quality.md`. Open work that implements these lives in [
   - When the total is an exact multiple of 20, the last request returns nothing. One extra small request was preferred over fetching 21 rows to detect the end.
   - The whole test suite runs three times. Any future date code is tested in both extreme zones for free.
   - Retrying after a render bug can draw part of a batch twice. That only happens after a bug has already been logged.
+
+---
+
+## [ADR-023] Hash routing, auth-state views, and waiting for Supabase before routing
+- **Date:** 2026-11-16
+- **Status:** Accepted
+- **Context:** SPEC § Home Page has one URL with two views, and the logged-in site has Rules, Profile and Admin pages. SPEC leaves single-page versus multi-page to the developer (A8). ISSUE-009 had to settle:
+  - **Routing.** Cloudflare Pages serves only static files. Path routes (`/rules`) would need rewrite rules to survive a reload, and would behave differently at `/` in production and `/public/` locally.
+  - **Sign-in callbacks.** With the implicit flow (ADR-021), a magic link or OAuth sign-in returns to the site with the session in the fragment (`#access_token=…`), and a failed one with `#error=…`. A hash router reads the same fragment. supabase-js reads and clears a successful one while it starts up (2.118.0 sets `location.hash = ''`, leaving a trailing `#`). It leaves a failed one in place, and also leaves a token it refused.
+  - **No flash of the landing page.** Until supabase-js has loaded the saved session, the app can't know whether the visitor is signed in.
+  - **Membership.** Signing in proves who someone is, not that they're invited. ISSUE-012's `claim_membership` decides that, but it doesn't exist yet, and 010, 011, 013, 018 and 019 all build on this shell before it does.
+  - **Offline.** If an expired session can't be renewed because Supabase is unreachable, `getSession()` returns no session and an `AuthRetryableFetchError`, but keeps the session to try again.
+  - **Logout.** supabase-js's `signOut()` defaults to scope `global`, which revokes every session the person has, on every device.
+- **Decision:**
+  - **Hash routes**: `#/` (or no hash), `#/rules`, `#/profile`, `#/admin` and `#/admin/<panel>` (for ISSUE-020). Matching is exact, with a trailing slash allowed. Anything else is an unknown route: it shows home and the address bar is corrected to `#/` with `history.replaceState` (no history entry, no `hashchange`). Routes always start `#/`, and Supabase's callback fragments never do; that is how they are told apart.
+  - **The pure part is in `public/js/router.js`** (a file SPEC § Project Structure doesn't list; noted in its header): `parseRoute`, `isAuthCallback`, `readAuthCallbackError`, `resolveView` and `navLinks`. `public/js/app.js` does everything that touches the page.
+  - **Route only after `await client.auth.getSession()`.** That call waits for supabase-js to finish starting up, including reading the fragment. Before it returns, the app neither reads nor changes the URL, and shows only "Loading…". `index.html`'s `#app` already says "Loading…" for the first paint. After it returns, any callback fragment still in the URL is removed: an `#error=…` is kept as `callbackError` for ISSUE-011 to explain and logged; a leftover `#access_token=…` is logged (never the token itself) and dropped. A trailing `#` is tidied away. The query string, where ISSUE-012's `?invite=` lives, is always kept.
+  - **Views, from the account state**:
+
+    | Account state | View |
+    |---|---|
+    | signed out | landing, on every route |
+    | unavailable (Supabase unreachable) | "Can't reach Board Game Olympics", with Try again |
+    | needs registration | registration (ISSUE-012) |
+    | not invited, deactivated | "not on the guest list" / "deactivated", with Log out |
+    | member | the page for the route; a non-admin on `#/admin` is sent to `#/` |
+
+    Any other state or role throws a `TypeError`: it's a bug, not something to guess about. Known routes are left in the address bar for non-members, so a logged-out visitor's `#/rules` is still there after they sign in.
+  - **Membership until ISSUE-012**: `loadMembership()` calls `current_member_id()` and, if that returns an id, reads `id, name, role` from `users`. No id means "not invited". A failed call means "unavailable", never "not invited". ISSUE-012 swaps in its claim through the same `{ state, profile }` shape; `startApp()` accepts the loader as an option, which is how the tests drive registration and deactivated.
+  - **Member pages share one layout**: a sidebar slot (ISSUE-013) beside the page on wide screens and above it on narrow ones. It's built once; navigating swaps only the page, moves focus to its `<h1>` (`tabindex="-1"`), and sets `<title>` ("Rules · Board Game Olympics"). The first load doesn't move focus.
+  - **The header stays static** in `index.html` (ADR-020): logo (the 57 KB small one; `logo.png` is 2.4 MB), `<nav id="site-nav">` and `<button id="logout-button">`, both shipped `hidden`. The nav (Home, Rules, Profile, plus Admin for the admin, with `aria-current="page"`) shows only for members. Log out shows for anyone with a session, including the not-invited view.
+  - **Changes after start-up**: `hashchange` re-renders from the account already loaded. Auth events are watched from after the first view: `SIGNED_OUT`, or `SIGNED_IN` for a different person, reloads the account; everything else is ignored. supabase-js warns that calling it from inside its event callback can deadlock, so the reload runs on the next tick. Each load is numbered and a stale one is dropped, so the newest state always wins. While loading, the nav and Log out are hidden and `hashchange` draws nothing.
+  - **Logout signs out of this browser only** (`signOut({ scope: 'local' })`). The button is disabled meanwhile. Afterwards the hash is cleared and the session is read again, so the page shows what's actually true even if `signOut()` failed. supabase-js 2.118 deletes the local session even when the server call fails, so in practice that means the landing page.
+  - **Guards are convenience only.** Comments in both files say so: Row Level Security and the admin-only database functions (ADR-015, ADR-017) are what protect data.
+- **Consequences:**
+  - Any route can be reloaded or bookmarked, with no server configuration. URLs carry a `#/`.
+  - Until ISSUE-012, nobody can get past "not on the guest list" by signing in, because nothing links an auth account to a profile. To see member pages on dev before then, link a profile by hand in the SQL Editor (`update users set auth_user_id = '<auth uid>' where email = '<you>'`).
+  - Every page load makes two small database calls for a signed-in visitor (the membership RPC and the profile row). ISSUE-012's claim replaces them with one.
+  - A signed-in visitor who goes offline with an expired session sees "Can't reach" rather than the landing page. Logged-out visitors never hit the network on load.
+  - Logging out on one device leaves the person signed in on their others. They can sign out there too; no "sign out everywhere" button is planned.
+  - The view placeholders say which issue fills them in. Each feature issue replaces its entry in `app.js`'s `VIEWS` table (and ISSUE-013 the sidebar placeholder) with its own render function.

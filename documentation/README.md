@@ -58,7 +58,7 @@ Site code uses **relative paths only** (no leading `/`), so the site works at `/
 
 3. Open the site at **http://localhost:8000/public/**.
 
-Until the app is built out (ISSUE-009 onward), the page shows only the header, with its theme toggle, and "Loading…". If it shows **"Board Game Olympics can't start"** instead, `config.js` is missing or wrong; the box says what to fix (see [Supabase client and sessions](#supabase-client-and-sessions)).
+Logged out, it shows the header and a placeholder landing page. Placeholders in square brackets mark what later issues build. If it shows **"Board Game Olympics can't start"** instead, `config.js` is missing or wrong; the box says what to fix (see [Supabase client and sessions](#supabase-client-and-sessions)). Until ISSUE-012, signing in shows "You're not on the guest list" (see [App shell and routing](#app-shell-and-routing)).
 
 ---
 
@@ -192,6 +192,37 @@ There are two themes: light, and dark ("Game Night Mode"). Their colours are CSS
 | `legacy anon or service_role key` / `not a publishable key` | Use the `sb_publishable_…` key (ADR-014). |
 | `https://` | `SUPABASE_URL` must be the `https://…supabase.co` project URL. |
 | `cdn.jsdelivr.net` | The Supabase library didn't load: offline, blocked by a content blocker, or `index.html`'s version and integrity hash don't match (see below). |
+
+---
+
+## App shell and routing
+
+`public/js/app.js` decides what the page shows, using the rules in `public/js/router.js` (ADR-023). Routes are hash routes, so any page can be reloaded or bookmarked without server settings.
+
+| Address | Logged out | Signed in, not a member | Member | Admin |
+|---------|------------|-------------------------|--------|-------|
+| `#/` or no hash | landing | not on the guest list, or registration (ISSUE-012) | dashboard | dashboard |
+| `#/rules`, `#/profile` | landing | as above | that page | that page |
+| `#/admin`, `#/admin/<panel>` | landing | as above | sent to `#/` | admin panel |
+| anything else | landing, address corrected to `#/` | as above, corrected to `#/` | dashboard, corrected to `#/` | dashboard, corrected to `#/` |
+
+- **"Loading…"** shows until supabase-js has loaded the saved session, so a member never sees the landing page flash up.
+- **"Can't reach Board Game Olympics"** means Supabase couldn't be asked who's signed in. Try again reloads; the console says what failed.
+- **Sign-in returns** (`#access_token=…`, `#error=…`) are never routes. supabase-js reads them first; the app then removes whatever is left from the address bar. A failed sign-in logs `Sign-in: …` in the console and is kept for ISSUE-011's message as the `callbackError` that `startApp()` returns.
+- **Log out** signs out of this browser only, not the person's other devices.
+- **Hiding a page is not security.** Row Level Security decides what anyone can read or change (ADR-017).
+
+**Filling in a page.** Each view in `app.js`'s `VIEWS` table starts as a placeholder naming the issue that builds it. Replace its `render` with your module's function. It gets `{ doc, account, route, retry }` and returns one element with a `data-view` attribute. `account.profile` holds the member's `id`, `name` and `role`. Member pages appear inside the shared layout, beside the sidebar (whose placeholder is in `showInMemberLayout()`).
+
+**Seeing member pages on dev before ISSUE-012.** Until ISSUE-012's `claim_membership` exists, signing in never links you to a profile. To link one by hand, sign in on dev once, then run this in the dev SQL Editor (never prod):
+
+```sql
+update public.users
+set auth_user_id = (select id from auth.users where lower(email) = lower('you@example.com'))
+where lower(email) = lower('you@example.com');
+```
+
+Set `auth_user_id = null` to undo it.
 
 ---
 
