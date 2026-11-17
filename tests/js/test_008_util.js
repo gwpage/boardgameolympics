@@ -22,6 +22,7 @@ import {
   INFINITE_SCROLL_TEXT,
   applyKeysetPage,
   avatarUrl,
+  createElement,
   createInfiniteScroll,
   escapeHtml,
   formatEventDate,
@@ -764,5 +765,28 @@ describe('avatarUrl', () => {
       }
     });
     assertEqual(warnings.length, unsafe.length);
+  });
+});
+
+/* ------------------------------------------------------------------------- */
+
+describe('createElement (added in ISSUE-010)', () => {
+  it('builds an element with attributes, and adds string children as text, never HTML', () => {
+    const hostile = '<img src=x onerror="window.__xss=1">';
+    const element = createElement(document, 'p', { class: 'note', 'data-x': 'y' }, 'Hello ', createElement(document, 'strong', {}, hostile));
+    assertEqual(element.outerHTML, '<p class="note" data-x="y">Hello <strong>&lt;img src=x onerror="window.__xss=1"&gt;</strong></p>');
+    assertEqual(element.querySelector('img'), null);
+  });
+
+  it('leaves out attributes that are null, undefined or false, and writes true as an empty attribute', () => {
+    const element = createElement(document, 'button', { hidden: true, disabled: false, title: null, 'aria-label': undefined, tabindex: 0 });
+    assertEqual(element.outerHTML, '<button hidden="" tabindex="0"></button>');
+  });
+
+  it('works with no attributes or children, in the document it is given', () => {
+    const other = document.implementation.createHTMLDocument('other');
+    const element = createElement(other, 'div');
+    assertEqual(element.outerHTML, '<div></div>');
+    assert(element.ownerDocument === other);
   });
 });

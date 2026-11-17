@@ -9,6 +9,8 @@
  *
  * WHAT'S HERE
  *   escapeHtml(value)               Text made safe for HTML content and quoted attributes.
+ *   createElement(doc, tag, attrs, ...children)
+ *                                   Builds an element; string children go in as text (ISSUE-010).
  *   formatRelativeTime(ts, now)     "just now", "5 minutes ago", "yesterday", "Feb 8".
  *   formatFullTimestamp(ts)         "Saturday, February 15, 2025 at 3:04 PM", for hover titles.
  *   formatEventDate('2025-02-15')   "Saturday, February 15, 2025", the same in every time zone.
@@ -71,6 +73,28 @@ export function escapeHtml(value) {
     return '';
   }
   return String(value).replace(HTML_SPECIAL_CHARACTERS, (character) => HTML_ESCAPES[character]);
+}
+
+/**
+ * Builds an element. Building with this instead of innerHTML means database
+ * text can never become markup: string children are added as text nodes.
+ *
+ * @param {Document} doc  The document to create it in.
+ * @param {string} tag
+ * @param {Object<string, *>} [attributes]  Set with setAttribute. null, undefined and false leave
+ *   the attribute out; true writes it empty (hidden=""); anything else is turned into a string.
+ * @param {...(Node|string)} children  Nodes, or strings added as text.
+ * @returns {Element}
+ */
+export function createElement(doc, tag, attributes = {}, ...children) {
+  const element = doc.createElement(tag);
+  for (const [name, value] of Object.entries(attributes)) {
+    if (value !== null && value !== undefined && value !== false) {
+      element.setAttribute(name, value === true ? '' : String(value));
+    }
+  }
+  element.append(...children);
+  return element;
 }
 
 /* ------------------------------------------------------------------------- */

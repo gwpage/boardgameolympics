@@ -51,6 +51,7 @@
 import { initTheme } from './theme.js';
 import { SetupError, getSupabase, renderSetupError } from './supabase.js';
 import { ACCOUNT, VIEW, isAuthCallback, navLinks, parseRoute, readAuthCallbackError, resolveView } from './router.js';
+import { createElement as create } from './util.js';
 
 /** The site's name: the whole <title> on the home and landing pages, the suffix elsewhere. */
 export const SITE_NAME = 'Board Game Olympics';
@@ -429,24 +430,12 @@ export function renderNav(nav, route, account) {
 /*
  * Each view's render function gets { doc, account, route, retry } and returns
  * one element marked with data-view. Text always goes in as text nodes, never
- * as HTML.
+ * as HTML (util.js's createElement).
  *
  * Most are placeholders until their issue lands. To take one over, import the
  * feature module's render function and put it in VIEWS in place of the
  * placeholder.
  */
-
-/** Builds an element. Attributes that are null or false are left off; children may be strings (added as text). */
-function create(doc, tag, attributes = {}, ...children) {
-  const element = doc.createElement(tag);
-  for (const [name, value] of Object.entries(attributes)) {
-    if (value !== null && value !== false && value !== undefined) {
-      element.setAttribute(name, value === true ? '' : String(value));
-    }
-  }
-  element.append(...children);
-  return element;
-}
 
 /** A page's main heading. tabindex="-1" lets the app move focus to it after navigation. */
 function pageHeading(doc, text, attributes = {}) {
