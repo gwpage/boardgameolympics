@@ -325,14 +325,18 @@ describe('theme: live OS theme changes', () => {
 
 describe('theme: throwing localStorage (private mode, blocked site data)', () => {
   it('still starts, follows the system, and toggles', async () => {
-    const warnings = await captureWarnings(() => {
-      const page = startTheme({ storage: createThrowingStorage(), systemDark: true });
-      assertEqual(page.applied(), DARK, 'start-up falls back to the system setting');
-
-      page.button.click();
-      assertEqual(page.applied(), LIGHT, 'the toggle still switches the theme');
+    let page;
+    const startWarnings = await captureWarnings(() => {
+      page = startTheme({ storage: createThrowingStorage(), systemDark: true });
     });
-    assert(warnings.length > 0, 'storage failures are reported with console.warn, not swallowed');
+    assertEqual(page.applied(), DARK, 'start-up falls back to the system setting');
+
+    const toggleWarnings = await captureWarnings(() => page.button.click());
+    assertEqual(page.applied(), LIGHT, 'the toggle still switches the theme');
+
+    // Failures are reported, not swallowed: one when reading, one when saving.
+    assert(startWarnings.length > 0, 'a failed read logs a console warning');
+    assert(toggleWarnings.length > 0, 'a failed save logs a console warning');
   });
 });
 
