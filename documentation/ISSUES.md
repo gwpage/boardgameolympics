@@ -718,7 +718,7 @@ The public advertisement for the event: same URL as the dashboard, shown when lo
 ## [ISSUE-011] Authentication — SSO, magic link, logout
 
 - **Type:** Feature
-- **Status:** Open
+- **Status:** Complete
 - **Branch:** `issue/011-authentication`
 - **Spec Reference:** SPEC.md § Authentication, § Session Management; SETUP_SUPABASE.md Step 4
 - **PR:** —
@@ -727,27 +727,28 @@ The public advertisement for the event: same URL as the dashboard, shown when lo
 Login UI and flows for Google, Facebook, and email magic link, plus logout. Invite tokens survive the round-trip to the auth provider.
 
 ### Acceptance Criteria
-- [ ] Login options: Google, Facebook, email magic link.
-- [ ] The magic link sets `shouldCreateUser: true` **only** when an invite token is present. The redirect URL carries the token.
-- [ ] The OAuth redirect URL also carries the invite token.
-- [ ] Friendly messages for: invalid email, link sent, expired/invalid link, rate-limited, provider error.
-- [ ] Logout signs out, clears all session cookies, and returns to the landing page.
-- [ ] Dashboard steps (providers, Site URL, redirect URLs, magic-link template) are verified against SETUP_SUPABASE.md and corrected where wrong.
+- [x] Login options: Google, Facebook, email magic link.
+- [x] The magic link sets `shouldCreateUser: true` **only** when an invite token is present. The redirect URL carries the token.
+- [x] The OAuth redirect URL also carries the invite token.
+- [x] Friendly messages for: invalid email, link sent, expired/invalid link, rate-limited, provider error.
+- [x] Logout signs out, clears all session cookies, and returns to the landing page.
+- [x] Dashboard steps (providers, Site URL, redirect URLs, magic-link template) are verified against SETUP_SUPABASE.md and corrected where wrong.
 
 ### Tests
 - **Test file(s):** `tests/js/test_011_auth.js`
-- [ ] `buildRedirectUrl(origin, token)` includes `?invite=token`; without a token it's the bare origin.
-- [ ] The magic-link call passes `shouldCreateUser: false` without a token and `true` with one.
-- [ ] Invalid emails are rejected before Supabase is called.
-- [ ] `mapAuthError` maps `otp_expired`, `over_email_send_rate_limit`, and `access_denied` to friendly text; unknown codes → generic text.
-- [ ] Logout calls `signOut` and leaves no `sb-` cookies.
-- [ ] Manual (documented checklist): Google and Facebook round-trips on dev.
+- [x] `buildRedirectUrl(origin, token)` includes `?invite=token`; without a token it's the bare origin.
+- [x] The magic-link call passes `shouldCreateUser: false` without a token and `true` with one.
+- [x] Invalid emails are rejected before Supabase is called.
+- [x] `mapAuthError` maps `otp_expired`, `over_email_send_rate_limit`, and `access_denied` to friendly text; unknown codes → generic text.
+- [x] Logout calls `signOut` and leaves no `sb-` cookies.
+- [ ] Manual (documented checklist): Google and Facebook round-trips on dev. The checklist is `tests/manual/test_011_sign_in.md`; the Boss runs it on dev before merging.
 
 ### Tasks
-- [ ] Write tests
-- [ ] `public/js/auth.js` flows
-- [ ] Login UI
-- [ ] Doc corrections
+- [x] Write tests
+- [x] `public/js/auth.js` flows
+- [x] Login UI
+- [x] Doc corrections
+- [x] ADR: sign-in, the invite token, error text → ADR-025
 
 ### Notes
 - Depends on: 009.
@@ -762,6 +763,33 @@ Login UI and flows for Google, Facebook, and email magic link, plus logout. Invi
 - From ISSUE-010 (ADR-024):
   - The landing page's "Log in or register" button (`.landing-login-button`) opens `#login-options` in `landing.js`. Replace `renderLoginOptions(doc)` there with the real options from `auth.js`.
   - For a failed sign-in, render the `callbackError` message on the landing page and open the panel, so the visitor can try again straight away.
+
+- As built (ADR-025, README § Signing in):
+  - **`public/js/auth.js`** holds the flows and the login panel:
+    - `parseInviteToken`, `siteBaseUrl`, `buildRedirectUrl`;
+    - `validateEmail`, `mapAuthError`, `describeAuthError`, `callbackErrorMessage`;
+    - `sendMagicLink`, `startOAuthSignIn`, `logOut`;
+    - `renderLoginOptions`.
+  - `landing.js` puts the panel in its disclosure, which starts open after a failed sign-in. `app.js` passes the landing page `callbackError` (once), `inviteToken` and `baseUrl`, and its Log out button calls `logOut()`.
+  - **Redirect URL**: the page's origin and path, plus `?invite=<token>` for a well-formed token (64 lowercase hex), and nothing else. The same URL is used for the magic link and OAuth.
+  - **`shouldCreateUser: true` only with a token.** Without one, dev answers an unknown address with `otp_disabled`, shown as "There's no account for that email address yet…".
+  - **Messages**: eleven fixed texts (`AUTH_MESSAGE`), chosen by Supabase error code. A bare 429 counts as rate-limited, and a network failure gets its own text. A callback's `error_code` beats `error`. The `error_description` from the URL is never shown.
+  - **The form** checks the address itself (`novalidate`): the message sits under the field, with `aria-invalid` and `aria-describedby`, and focus moves to the field. "Sending…" disables the button while the request is out. The feedback line is `role="status"`; a failed sign-in from the URL is `role="alert"` and goes away when the visitor tries again.
+  - **OAuth** uses supabase-js's own redirect. `skipBrowserRedirect` would make Supabase answer with JSON.
+  - **Logout** moved into `auth.js`, unchanged: `signOut({ scope: 'local' })`, then the session is read again.
+  - **Styles**: outlined buttons. Errors and confirmations use the primary text colour with a red or green bar, because neither red nor green text reaches 4.5:1 in both themes. The field border is `--text-muted`, so the box is visible.
+  - **Docs**:
+    - SETUP_SUPABASE.md Step 4 was rewritten. It covers keeping sign-ups on; dev and prod Site URL and redirect URLs (`http://localhost:8000/**`; the old guide said `localhost:3000`); templates linking with `{{ .ConfirmationURL }}`; the built-in email's limits and SMTP's new menu location; Google's consent screen **In production**; Facebook's `email` permission, privacy policy and Live mode; and what a switched-off provider looks like.
+    - CONTENT_CHECKLIST.md gains § Legal Pages and a note that the magic-link copy goes in both templates.
+    - New: `tests/manual/test_011_sign_in.md`.
+- Results:
+  - `tests/run.sh`: PASS 272/272 (44 new) in each of America/Chicago, Pacific/Kiritimati and Etc/GMT+12.
+  - Mutation check: 56 deliberate breaks to `auth.js`, `landing.js` and `app.js`. The first run caught 54. The two misses (trying again kept the stale sign-in error; a second submit while sending wasn't ignored) are now tested, and all 56 are caught. The CSS was checked by eye, not by mutation.
+  - Checked outside the suite:
+    - Our `auth.js` ran against the real supabase-js 2.118.0 bundle (hash matching `index.html`) with a fake network. `create_user` was `true` only with a token, and `redirect_to` carried `?invite=<token>`. Logout called `/logout?scope=local` and left no `sb-` cookies in `document.cookie`. Real `otp_disabled`, 429, `email_address_not_authorized`, network and 502 responses each gave the intended message.
+    - Dev's `/auth/v1/settings`: email and Google on, Facebook off, sign-ups allowed. Dev's `/authorize?provider=facebook` returns a bare 400 JSON page; Google redirects to Google.
+    - The real page against dev, in headless Chrome: the expired-link return (`#error=…&error_code=otp_expired`) opens the panel with its message. The panel was checked at 360 px (in a 360 px frame) and on desktop, in both themes, including the field error and "Check your email" states.
+  - **Pending dev acceptance:** the manual checklist, run by the Boss. Dev first needs its URL Configuration set (README § Signing in). The Facebook rows need Facebook switched on in dev.
 
 ---
 
@@ -824,6 +852,12 @@ Turn a signed-in auth user into a member, or reject them. This is where invitati
   - Replace the `VIEW.REGISTRATION` placeholder. After the form saves, call `retry()` from the view context to reload the account, which then shows the dashboard.
   - `?invite=TOKEN` is in the query string, which the router never touches. The hash is cleared on logout.
 - From ISSUE-010: a visitor arriving with `?invite=` sees the landing page like anyone else. Consider opening the login panel automatically and saying they've been invited (`landing.js`'s `renderLogin`).
+- From ISSUE-011 (ADR-025):
+  - `parseInviteToken(search)` already exists in `auth.js`, accepting exactly `^[0-9a-f]{64}$`, and is tested in test_011. Build on it rather than writing a second one. ISSUE-012 adds the persistence through login and the clearing after a claim.
+  - Every sign-in already returns to `<page>?invite=<token>` when the visitor arrived with a token. But if a project's redirect URLs are wrong, Supabase falls back to the Site URL and drops the token. The persisted copy covers that.
+  - The landing page gets `inviteToken` in its view context. `renderLoginOptions({ …, inviteToken })` carries it into both sign-in calls.
+  - Log out is `logOut(client)` from `auth.js`; the header button already uses it. The not-invited view's sign-out can call it too, then `retry()`.
+  - Magic-link sign-ups without a token are refused by Supabase (`otp_disabled`). So a seeded or admin-created guest's first sign-in is by Google or Facebook, or through an invite link.
 
 ---
 
@@ -1213,6 +1247,7 @@ Both sit behind one interface that ISSUE-023 and ISSUE-027 use.
 - Caveats (also recorded in ADR-002):
   - `inviteUserByEmail` fails for emails that already have an account. Returning users are reached by the RSVP follow-up after Start New Year instead.
   - Invite links are short-lived (≤24 h). That's harmless, because membership also matches by email on any later sign-in.
+- From ISSUE-011 (ADR-025): pass `inviteUserByEmail` a `redirectTo` built like `auth.js`'s `buildRedirectUrl(<site URL>, <token>)`, so the email's link returns with `?invite=<token>`. The **Invite** template must link with `{{ .ConfirmationURL }}`, which carries that `redirect_to`; `{{ .SiteURL }}` would drop it (SETUP_SUPABASE.md § Email templates). The redirect URL must be on the prod project's allow list.
 - Supabase docs say Edge Functions can't open outbound connections on SMTP ports 25/587, so hand-rolled Gmail SMTP isn't a dependable path. That's why the function uses the Auth invite API.
 - From ISSUE-003: `service_role` (the secret key) has SELECT, INSERT, UPDATE and DELETE on every table, but not TRUNCATE, and bypasses RLS. `admin_list_users()` checks `is_admin()` from the caller's JWT, so it won't work with the secret key alone.
 
@@ -1494,6 +1529,11 @@ Make the whole site work well on phones and tablets, and be usable with a keyboa
 
 - From ISSUE-009: because of the dark `--btn-primary` ratio above, ISSUE-009's buttons (Log out, Try again) are outlined rather than filled. Fill them if the palette changes. The header, nav and message views were checked at 360 px in both themes.
 - From ISSUE-010: in the dark theme, the logo's black ring nearly disappears against the background. That's the artwork, not the CSS; raise it with the Boss when the final logo is delivered.
+- From ISSUE-011: review the login panel with a screen reader:
+  - the feedback line is a `role="status"` region that's always present;
+  - a failed sign-in from the URL is a `role="alert"` paragraph present on first render;
+  - the email field's error uses `aria-invalid` plus `aria-describedby`.
+  Checked visually at 360 px in both themes. Error and confirmation lines use a coloured bar, not coloured text.
 ---
 
 ## [ISSUE-030] Production deployment
@@ -1553,6 +1593,12 @@ Stand up the production Supabase project and the Cloudflare Pages site on the cu
 - From ISSUE-010 (ADR-024):
   - The production domain is **`boardgameolympics.net`** (the Boss, 2026-11-16). `index.html`'s `og:url` and `og:image` already use it, and SETUP_CLOUDFLARE.md / SETUP_SUPABASE.md name it. Check that `https://boardgameolympics.net/assets/images/og-image.png` loads once deployed.
   - Before going live, nothing marked `data-placeholder` or `placeholder: true` should remain. README § Placeholder content has the `grep`; consider making it a deploy check.
+- From ISSUE-011 (ADR-025, SETUP_SUPABASE.md Step 4), on the **prod** project:
+  - URL Configuration: Site URL `https://boardgameolympics.net`, Redirect URLs `https://boardgameolympics.net/**`. Add `www` too, or redirect it to the bare domain.
+  - Custom SMTP, and the Magic Link, Confirm signup and Invite templates branded, linking with `{{ .ConfirmationURL }}`.
+  - Google consent screen **In production**, with `boardgameolympics.net` and `<ref>.supabase.co` as authorized domains.
+  - Facebook: `email` permission, privacy policy and data-deletion URLs (CONTENT_CHECKLIST § Legal Pages), app **Live**, provider switched on. Otherwise remove it from `LOGIN_PROVIDERS` before launch, because its button would lead to a Supabase error page.
+  - After deploying, smoke-test one Google and one magic-link sign-in on prod with a real invitation. `tests/manual/test_011_sign_in.md` is written for dev, but its rows 1–4 and 9–10 apply.
 ---
 
 ## [ISSUE-031] Supabase keep-alive
