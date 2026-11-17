@@ -683,6 +683,38 @@ describe('auth: the login options', () => {
     });
   });
 
+  it('a second submit while the first is still sending sends nothing more', async () => {
+    const answer = deferred();
+    const client = createAuthClient({ otp: () => answer.promise });
+    const root = renderLoginOptions({ doc: document, client, inviteToken: null, baseUrl: SITE_URL });
+    await attached(root, async () => {
+      submitEmail(root, 'alex@example.org');
+      await settle();
+      submitEmail(root, 'alex@example.org');
+      await settle();
+      assertEqual(callsNamed(client, 'signInWithOtp').length, 1);
+      answer.resolve({ data: { user: null, session: null }, error: null });
+      await settle();
+    });
+  });
+
+  it('trying again removes the old sign-in error, whichever way the visitor tries', async () => {
+    const callbackError = { error: 'access_denied', code: 'otp_expired', description: null };
+    const byEmail = renderLoginOptions({ doc: document, client: createAuthClient(), inviteToken: null, baseUrl: SITE_URL, callbackError });
+    await attached(byEmail, async () => {
+      submitEmail(byEmail, 'alex@example.org');
+      await settle();
+      assertEqual(loginParts(byEmail).callbackAlert, null);
+    });
+
+    const byProvider = renderLoginOptions({ doc: document, client: createAuthClient(), inviteToken: null, baseUrl: SITE_URL, callbackError });
+    await attached(byProvider, async () => {
+      loginParts(byProvider).providerButtons[0].click();
+      await settle();
+      assertEqual(loginParts(byProvider).callbackAlert, null);
+    });
+  });
+
   it('a failed sign-in from the URL is shown as an alert, without the description from the URL', () => {
     const root = renderLoginOptions({
       doc: document,
