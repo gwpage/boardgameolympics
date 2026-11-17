@@ -412,7 +412,7 @@ Idempotent seed scripts: the admin account (all environments) and the 2025 test 
 ## [ISSUE-006] Theme system (light / Game Night Mode)
 
 - **Type:** Feature
-- **Status:** Open
+- **Status:** In Progress
 - **Branch:** `issue/006-theme-system`
 - **Spec Reference:** COLORS.md (all); SPEC.md § Project Structure (`theme.js`)
 - **PR:** —
