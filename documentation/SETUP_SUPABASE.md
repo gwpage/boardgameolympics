@@ -137,7 +137,7 @@ Supabase's default email sender has rate limits (around 2–3 emails per hour on
 ### Configure Redirect URLs
 
 1. Go to **Authentication** → **URL Configuration**.
-2. Set your **Site URL** to your custom domain (e.g., `https://boardgameolympics.com`).
+2. Set your **Site URL** to your custom domain: `https://boardgameolympics.net`.
 3. Add any additional redirect URLs if needed (e.g., `http://localhost:3000` for local development).
 
 ---

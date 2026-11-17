@@ -180,12 +180,25 @@ function createFakeClient({
         return { data: { subscription: { unsubscribe: () => listeners.delete(callback) } } };
       },
     },
-    async rpc(name, args) {
+    // Like supabase-js, rpc() returns a builder that can be awaited or narrowed with maybeSingle().
+    // get_public_event_info (the landing page's date, ISSUE-010) answers "no event yet".
+    rpc(name, args) {
       calls.push(['rpc', name, args]);
-      if (queuedRpcResults && queuedRpcResults.length > 0) {
-        return queuedRpcResults.shift();
-      }
-      return { data: memberId, error: null };
+      let result;
+      const settle = () => {
+        if (result === undefined) {
+          if (name === 'get_public_event_info') {
+            result = { data: null, error: null };
+          } else {
+            result = queuedRpcResults && queuedRpcResults.length > 0 ? queuedRpcResults.shift() : { data: memberId, error: null };
+          }
+        }
+        return Promise.resolve(result);
+      };
+      return {
+        then: (resolve, reject) => settle().then(resolve, reject),
+        maybeSingle: () => settle(),
+      };
     },
     from(table) {
       const steps = [];
@@ -725,13 +738,13 @@ describe('app: startApp', () => {
     }
   });
 
-  it('logged out: the landing page on every route, with no database queries, nav or logout', async () => {
+  it('logged out: the landing page on every route, with no nav, no logout, and no query but the public date', async () => {
     for (const hash of EVERY_HASH) {
       const client = createFakeClient();
       const run = await launched({ client, url: `${SITE_URL}${hash}` });
       try {
         assertEqual(currentView(run.shell.appRoot), VIEW.LANDING, hash);
-        assertEqual(callNames(client), ['getSession'], `${hash}: only the session is checked`);
+        assertEqual(callNames(client), ['getSession', 'rpc:get_public_event_info'], `${hash}: the session, then the landing page's date (ISSUE-010)`);
         assertEqual(run.shell.nav.hidden, true, hash);
         assertEqual(run.shell.logoutButton.hidden, true, hash);
         assertEqual(run.doc.title, SITE_NAME, hash);

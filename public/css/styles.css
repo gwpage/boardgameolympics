@@ -460,7 +460,111 @@ h1[tabindex="-1"]:focus {
   outline-offset: 2px;
 }
 
-/* === Landing page (ISSUE-010) === */
+/* === Landing page (ISSUE-010) ===
+ *
+ * js/landing.js renders it into #app for logged-out visitors: a centred
+ * column of logo, name, tagline, date (the most prominent line), location,
+ * description, and the login button with the options it opens.
+ */
+
+.landing {
+  box-sizing: border-box;
+  width: min(40rem, 100% - 2rem);
+  margin: 1rem auto 3rem;
+  text-align: center;
+}
+
+.landing-logo {
+  display: block;
+  width: min(30rem, 100%);
+  height: auto;
+  /* The artwork fills the top two-thirds of its frame; show just that part. */
+  aspect-ratio: 960 / 430;
+  object-fit: cover;
+  object-position: top;
+  margin: 0 auto;
+}
+
+.landing-title {
+  margin: 0.25rem 0 0;
+  font-size: clamp(2rem, 7vw, 3rem);
+  line-height: 1.15;
+}
+
+.landing-tagline {
+  margin: 0.5rem 0 0;
+  font-size: 1.25rem;
+  color: var(--text-secondary);
+}
+
+.landing-date {
+  margin: 1.75rem 0 0;
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.landing-location {
+  margin: 0.25rem 0 0;
+  color: var(--text-secondary);
+}
+
+.landing-description {
+  max-width: 34rem;
+  margin: 1.5rem auto 0;
+}
+
+/* Copy still waiting for CONTENT_CHECKLIST.md (it also reads "[Placeholder: …]"). */
+.landing [data-placeholder] {
+  font-style: italic;
+}
+
+.landing-login {
+  margin-top: 2rem;
+}
+
+/*
+ * The one filled button on the site: the primary "Register" button COLORS.md
+ * describes. Its text is large and bold (20px, 700), so WCAG's large-text
+ * minimum of 3:1 applies, which white-ish text meets on both blues in both
+ * themes. (Normal-size text on the dark theme's blue can't reach 4.5:1, which
+ * is why the other buttons are outlined.)
+ */
+.landing-login-button {
+  min-height: 3rem;
+  padding: 0 1.75rem;
+  font: inherit;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--bg-card);
+  background-color: var(--btn-primary);
+  border: 0;
+  border-radius: 0.5rem;
+  cursor: pointer;
+}
+
+/* --bg-card is near-black in the dark theme; use the near-white text colour on the blue instead. */
+[data-theme="dark"] .landing-login-button {
+  color: var(--text-primary);
+}
+
+.landing-login-button:hover {
+  background-color: var(--btn-primary-hover);
+}
+
+.landing-login-button:focus-visible {
+  outline: 2px solid var(--text-link);
+  outline-offset: 3px;
+}
+
+.login-options {
+  box-sizing: border-box;
+  max-width: 24rem;
+  margin: 1rem auto 0;
+  padding: 1rem 1.25rem;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+}
 
 /* === Login & registration (ISSUE-011, ISSUE-012) === */
 

@@ -530,3 +530,31 @@ Format: `~/.claude/rules/quality.md`. Open work that implements these lives in [
   - A signed-in visitor who goes offline with an expired session sees "Can't reach" rather than the landing page. Logged-out visitors never hit the network on load.
   - Logging out on one device leaves the person signed in on their others. They can sign out there too; no "sign out everywhere" button is planned.
   - The view placeholders say which issue fills them in. Each feature issue replaces its entry in `app.js`'s `VIEWS` table (and ISSUE-013 the sidebar placeholder) with its own render function.
+
+---
+
+## [ADR-024] Landing page: one public query, marked placeholders, static link-preview tags, web-sized images
+- **Date:** 2026-11-16
+- **Status:** Accepted
+- **Context:** ISSUE-010 builds the page signed-out visitors see on every route (SPEC § Logged-Out View). Points that needed settling:
+  - **Data.** Signed-out visitors can read no table. The only thing `anon` can call is `get_public_event_info()` (ADR-016), which returns `[]` or `[{year, event_date}]`.
+  - **Copy.** The tagline, description, location and meta description are still open items in CONTENT_CHECKLIST.md, but the page has to be built and tested now. Nothing should reach production as placeholder text unnoticed.
+  - **Link previews.** Chat apps and search engines read `<title>`, the description and Open Graph tags without running JavaScript, so those can't come from `landing.js`. Open Graph needs absolute URLs, while every path the page loads must stay relative (ADR-003).
+  - **Images.** `logo.png` is 1536 × 1024 and 2.4 MB, too heavy for a phone on mobile data. Its artwork fills only the top two-thirds of the frame. There's no `og-image.png` yet (CONTENT_CHECKLIST § Graphics).
+  - **Login.** The button must open the login options, but those are ISSUE-011's.
+- **Decision:**
+  - **`public/js/landing.js`** (not in SPEC § Project Structure; noted in its header) renders the page: logo, event name, tagline, date, location, description, and "Log in or register".
+  - **The date** comes from `client.rpc('get_public_event_info').maybeSingle()`, the page's only query. It's formatted with `formatEventDate` (ADR-022) and shown in a `<time datetime>`. No row or no date shows "Date TBA" quietly. An error from the call, or a malformed date, also shows "Date TBA" and is logged. `loadPublicEventDate()` never rejects. Until the call answers, the line reads "Checking the date…" with `aria-busy="true"`.
+  - **Placeholder copy is marked twice.** `LANDING_COPY` gives each piece of text a `placeholder` flag. While it's true, the text shows as "[Placeholder: …]" and the element carries `data-placeholder`. The placeholder meta tags in `index.html` carry `data-placeholder` too. Delivering copy means replacing the text and clearing the flag. Before launch, nothing marked `data-placeholder` should remain.
+  - **Link-preview tags are static in `index.html`**: description, `og:type`, `og:site_name`, `og:title`, `og:description`, `og:url`, `og:image` with its width, height and alt text, and `twitter:card` = `summary_large_image`. X reads the `og:` tags when its own are missing, so they aren't repeated. `og:url` and `og:image` are absolute URLs on the production site, `https://boardgameolympics.net/` (the Boss's domain). They're the only absolute URLs in the file. `<title>` must equal `SITE_NAME` in `app.js`, which sets the title as views change; a test enforces it.
+  - **Web-sized images, made with tools already on hand.**
+    - `logo-landing.png` is `logo.png` resized to 960 × 640 with macOS `sips` (303 KB, transparency kept). That's sharp at the 480 px it's shown, on a 2× screen. CSS shows only the artwork's top part (`aspect-ratio` plus `object-fit: cover; object-position: top`), without editing the file.
+    - `og-image.png` (1200 × 630, 152 KB) is the logo and the name on the dark theme's background, captured with headless Chrome.
+    - Both are placeholders until the final artwork arrives. README § Placeholder content has the commands to regenerate them.
+  - **The login button is a disclosure.** It has `aria-expanded` and `aria-controls`, and opens a panel right below it. For now the panel holds an ISSUE-011 placeholder. It's the site's one filled button (COLORS.md's primary "Register" button). Its text is 20 px bold, so WCAG's large-text minimum of 3:1 applies. The text is the card colour in light (6.1:1) and the near-white text colour in dark (3.6:1, and 5.1:1 on hover).
+  - **Shared plumbing.** `app.js` passes the Supabase `client` in every view's context. Its private element builder moved to `util.js` as `createElement`, so views share one helper that adds strings as text, never HTML.
+- **Consequences:**
+  - The landing page makes one small anonymous request per render, including when a signed-out visitor changes the hash. That was simpler than caching, and it's the same function the keep-alive ping calls.
+  - Link previews point at production even from a local or preview copy of the site, which is what they're for. `og-image.png` only resolves once ISSUE-030 has deployed it.
+  - Placeholder text is visible on the page in square brackets, so nobody mistakes it for final copy.
+  - When final artwork arrives, the two derived images must be regenerated, or replaced with supplied ones.
