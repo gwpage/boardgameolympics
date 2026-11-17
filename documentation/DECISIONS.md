@@ -558,3 +558,40 @@ Format: `~/.claude/rules/quality.md`. Open work that implements these lives in [
   - Link previews point at production even from a local or preview copy of the site, which is what they're for. `og-image.png` only resolves once ISSUE-030 has deployed it.
   - Placeholder text is visible on the page in square brackets, so nobody mistakes it for final copy.
   - When final artwork arrives, the two derived images must be regenerated, or replaced with supplied ones.
+
+---
+
+## [ADR-025] Sign-in: the invite token in the redirect URL, new magic-link accounts only with a token, the site's own error text
+- **Date:** 2026-11-17
+- **Status:** Accepted
+- **Context:** ISSUE-011 builds the login options (Google, Facebook, magic link) and logout. Points that needed settling:
+  - **The token's trip.** Every sign-in leaves the site, at Google, Facebook or the mail app, and comes back to a redirect URL. ISSUE-012 needs the invite token afterwards. Supabase only returns visitors to URLs on its allow list. Anything else is replaced by the Site URL, with no error. The implicit flow (ADR-021) puts the session in the URL fragment, so the redirect URL can't use one.
+  - **Who gets an account.** `signInWithOtp` creates an account for an unknown address unless `shouldCreateUser` is false. OAuth always creates one. Neither can stop anyone, because anyone can call Supabase's API directly with the publishable key. ISSUE-012's `claim_membership` and Row Level Security are the gate.
+  - **Account discovery.** With `shouldCreateUser: false`, dev answers an unknown address with `otp_disabled` ("Signups not allowed for otp", HTTP 422), and a known one by sending the link. So Supabase already tells anyone who asks whether an address has an account.
+  - **Error text.** supabase-js 2.118 gives refusals a `code` (`over_email_send_rate_limit`, …) and network failures the name `AuthRetryableFetchError`. A failed round trip comes back as `#error=…&error_code=…&error_description=…`. Anyone can craft such a URL, description included.
+  - **OAuth navigation.** `signInWithOAuth` sends the browser away itself. Its `skipBrowserRedirect` option would make the code testable, but it also adds `skip_http_redirect=true`, which makes Supabase answer with JSON instead of a redirect.
+  - **Providers that are off.** Supabase answers a provider that isn't switched on with a bare JSON error page (seen on dev for Facebook: `Unsupported provider: provider is not enabled`), not with a redirect back.
+- **Decision:**
+  - **`public/js/auth.js`** holds the flows and the login panel. `landing.js` puts the panel in its "Log in or register" disclosure. `app.js` passes the landing page `callbackError`, `inviteToken` and `baseUrl`, read only after `getSession()` returns (ADR-023), and its Log out button calls `auth.js`'s `logOut()`.
+  - **Redirect URL** = the page's origin and path, plus `?invite=<token>` when there is one, and nothing else (`buildRedirectUrl`). Both the magic link (`emailRedirectTo`) and OAuth (`redirectTo`) use it. It's `/` in production and `/public/` locally.
+  - **Only a well-formed token counts** (`parseInviteToken`: exactly 64 lowercase hex characters, the database's own check, ADR-009). A malformed one can never be valid, so it's treated as no token. ISSUE-012 builds on the same function.
+  - **`shouldCreateUser: true` only with a token.** Without one, `otp_disabled` reads "There's no account for that email address yet", and points to the invitation link and to Google or Facebook. Hiding that would protect nothing, since Supabase's API already reveals it, and would strand the seeded guests, whose first sign-in must be by Google, Facebook or an invite link.
+  - **The site's own words for every error.** A table maps Supabase's error codes to eleven messages (`AUTH_MESSAGE`): empty or invalid address, expired link, rate-limited, provider refused, no account, address refused, can't email that address, account blocked, network, and a generic fallback. A refusal with no known code but HTTP 429 counts as rate-limited. A callback's `error_code` beats its broad `error` (`access_denied` + `otp_expired` is an expired link). Its description is never shown; only the console warning includes it. A Map is used, so a code like `constructor` can't match something inherited.
+  - **Addresses are checked before any request**: trimmed, not empty, at most 254 characters, `something@something.something` with no spaces or empty parts. The form uses `novalidate` and shows its own message under the field (`aria-invalid`, `aria-describedby`, focus moved there), so it's the same in every browser.
+  - **A failed sign-in is explained once.** The landing page opens its login panel with the message as `role="alert"`. `app.js` hands the error to the first view drawn after the visitor is known, then forgets it, so redrawing on a hashchange doesn't bring it back. Trying again removes it.
+  - **OAuth uses supabase-js's own redirect**, without `skipBrowserRedirect`. Tests check the call with a fake client.
+  - **Providers are a list** (`LOGIN_PROVIDERS`: Google, Facebook). Facebook stays on it, as the spec requires, though dev doesn't have it switched on yet. The setup guide says to remove an entry that can't be switched on.
+  - **Logout** is `signOut({ scope: 'local' })` (ADR-023). supabase-js 2.118 then removes the session, the PKCE verifier and the user copy from storage, even when the server call fails. That deletes every `sb-` cookie. There's no extra sweep of cookies.
+  - **What the automated tests can't follow** (Google, Facebook, the mail app) is a manual checklist, `tests/manual/test_011_sign_in.md`, run on dev.
+  - **The setup guide's Step 4 was corrected**: sign-ups must stay on; dev's Site URL and redirect URLs (`http://localhost:8000/**`, not `localhost:3000`); `**` wildcards; email templates must link with `{{ .ConfirmationURL }}`; the built-in email only reaches the Supabase organization; Google's consent screen must be **In production**; Facebook needs the `email` permission, a privacy policy and Live mode; new dashboard menu locations.
+- **Consequences:**
+  - An invite token survives any of the three sign-ins, as long as the project's redirect URLs are set. A missing allow-list entry fails quietly (the token is dropped), which is why the manual checklist checks the address bar.
+  - Anyone can still create an orphan auth account, by Google, Facebook or the API. It has no profile and sees "not on the guest list". Cleaning them up is optional.
+  - The panel tells visitors whether an address has an account. That's no more than Supabase's API already tells anyone.
+  - Until Facebook is switched on, its button leads to a Supabase error page. It must be on, with the app Live, before launch (ISSUE-030). Going Live needs a privacy policy URL (CONTENT_CHECKLIST § Legal Pages).
+  - Supabase's docs don't say whether a brand-new address gets the **Magic Link** or the **Confirm signup** template. Both are to be branded, and the checklist records which arrives.
+  - Verified outside the suite, with the real supabase-js 2.118.0 bundle (hash matching `index.html`) and a fake network:
+    - `create_user` is `true` only with a token;
+    - `redirect_to` carries `?invite=<token>`;
+    - logout calls `/logout?scope=local` and leaves no `sb-` cookies in `document.cookie`;
+    - real `otp_disabled`, 429, `email_address_not_authorized`, network and 502 responses produce the expected messages.

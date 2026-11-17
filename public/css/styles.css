@@ -566,7 +566,143 @@ h1[tabindex="-1"]:focus {
   border-radius: 0.5rem;
 }
 
-/* === Login & registration (ISSUE-011, ISSUE-012) === */
+/* === Login & registration (ISSUE-011, ISSUE-012) ===
+ *
+ * js/auth.js renders .login inside the landing page's .login-options panel:
+ * a failed sign-in's alert (if any), a button per provider, "or", the
+ * magic-link form, and a feedback line.
+ * - Buttons are outlined, like Log out: no filled-button text colour reaches
+ *   4.5:1 on the dark theme's blue (see .app-message-button).
+ * - Errors and confirmations keep the primary text colour, with a coloured bar
+ *   to the left. Neither red nor green text reaches 4.5:1 on both themes'
+ *   cards, so colour is never the only signal.
+ * - The email field's border is --text-muted (3:1 or better on both cards), so
+ *   the box itself is visible (WCAG 1.4.11); --border is too faint for that.
+ */
+
+.login {
+  /* The landing page is centred; a form reads better left-aligned. */
+  text-align: left;
+  /* A long email address in "We've sent a sign-in link to …" wraps instead of widening the page. */
+  overflow-wrap: anywhere;
+}
+
+.login-callback-error,
+.login-field-error,
+.login-feedback[data-tone] {
+  padding: 0.5rem 0.75rem;
+  color: var(--text-primary);
+  background-color: var(--bg-subtle);
+  border-left: 4px solid var(--btn-secondary);
+  border-radius: 0.25rem;
+}
+
+.login-callback-error {
+  margin: 0 0 1rem;
+}
+
+.login-providers {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.login-provider,
+.login-submit {
+  /* 44px touch target. */
+  min-height: 2.75rem;
+  padding: 0 1rem;
+  font: inherit;
+  font-weight: 600;
+  color: var(--text-primary);
+  background-color: transparent;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  cursor: pointer;
+}
+
+.login-provider:hover,
+.login-submit:hover {
+  background-color: var(--bg-subtle);
+}
+
+.login-provider:focus-visible,
+.login-submit:focus-visible,
+.login-input:focus-visible {
+  outline: 2px solid var(--text-link);
+  outline-offset: 2px;
+}
+
+.login-submit[aria-busy="true"] {
+  cursor: progress;
+}
+
+/* "or", with a rule on each side. */
+.login-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 1rem 0;
+  color: var(--text-secondary);
+}
+
+.login-divider::before,
+.login-divider::after {
+  content: "";
+  flex: 1;
+  border-top: 1px solid var(--border);
+}
+
+.login-email-form {
+  display: grid;
+  gap: 0.375rem;
+}
+
+.login-label {
+  font-weight: 600;
+}
+
+.login-input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0 0.75rem;
+  font: inherit;
+  color: var(--text-primary);
+  background-color: var(--bg-card);
+  border: 1px solid var(--text-muted);
+  border-radius: 0.5rem;
+}
+
+.login-input[aria-invalid="true"] {
+  border-color: var(--btn-secondary);
+}
+
+.login-hint {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+.login-field-error {
+  margin: 0;
+}
+
+.login-submit {
+  margin-top: 0.5rem;
+}
+
+/* Kept in the page while empty, so screen readers are already watching it when text arrives. */
+.login-feedback {
+  margin: 1rem 0 0;
+}
+
+.login-feedback:empty {
+  margin: 0;
+}
+
+.login-feedback[data-tone="success"] {
+  border-left-color: var(--color-success);
+}
 
 /* === Activity feed (ISSUE-018) === */
 
