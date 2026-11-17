@@ -30,6 +30,9 @@ const EVENT_2025 = Object.freeze({ year: 2025, event_date: '2025-02-15' });
 const OG_IMAGE_WIDTH = 1200;
 const OG_IMAGE_HEIGHT = 630;
 
+/** The production site (the Boss, 2026-11-16). Link previews must point here. */
+const PRODUCTION_ORIGIN = 'https://boardgameolympics.net';
+
 /** The landing logo must stay small: logo.png itself is 2.4 MB, far too much for a phone. */
 const MAX_LANDING_LOGO_BYTES = 400 * 1024;
 
@@ -361,13 +364,13 @@ describe('landing: index.html <head>', () => {
     }
   });
 
-  it('og:url and og:image are absolute https URLs on one site, as link previews require', async () => {
+  it('og:url and og:image are absolute https URLs on the production site, as link previews require', async () => {
     const doc = await parseIndexHead();
     const url = new URL(metaContent(doc, 'meta[property="og:url"]'));
     const image = new URL(metaContent(doc, 'meta[property="og:image"]'));
-    assertEqual(url.protocol, 'https:');
+    assertEqual(url.origin, PRODUCTION_ORIGIN);
     assertEqual(url.pathname, '/', 'the site root');
-    assertEqual(image.origin, url.origin);
+    assertEqual(image.origin, PRODUCTION_ORIGIN);
   });
 
   it('og:image is a real 1200 × 630 image in public/, and og:image:width/height say so', async () => {
@@ -401,6 +404,6 @@ describe('landing: index.html <head>', () => {
       (element) => element.getAttribute('name') ?? element.getAttribute('property')
     );
     assert(placeholders.includes('description'), `the description is a placeholder until CONTENT_CHECKLIST § Meta / SEO arrives: ${placeholders}`);
-    assert(placeholders.includes('og:url'), 'so is the domain (ISSUE-030)');
+    assert(!placeholders.includes('og:url') && !placeholders.includes('og:image'), 'the domain is real, so its tags are not placeholders');
   });
 });

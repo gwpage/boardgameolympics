@@ -59,7 +59,7 @@ This is fine for one-off deploys but doesn't give you automatic CI/CD.
 1. Go to **Workers & Pages** → select your project.
 2. Click the **"Custom domains"** tab.
 3. Click **"Set up a custom domain"**.
-4. Enter your domain (e.g., `boardgameolympics.com` or `www.boardgameolympics.com`).
+4. Enter your domain: `boardgameolympics.net` (the link-preview tags in `public/index.html` expect it).
 5. Cloudflare will automatically create the required DNS record since it already manages your domain.
 6. SSL is provisioned automatically — no configuration needed.
 

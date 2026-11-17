@@ -696,7 +696,7 @@ The public advertisement for the event: same URL as the dashboard, shown when lo
   - **Placeholders:** `LANDING_COPY` flags tagline, location and description as placeholders. They show as "[Placeholder: …]" and carry `data-placeholder`, as do the placeholder meta tags.
   - **`index.html` head:**
     - the description, `og:type`, `og:site_name`, `og:title`, `og:description`, `og:url`, `og:image` with width, height and alt text, and `twitter:card` = `summary_large_image`;
-    - `og:url` and `og:image` use the stand-in domain `boardgameolympics.example` until ISSUE-030;
+    - `og:url` and `og:image` are absolute URLs on the production site, `https://boardgameolympics.net/`;
     - `<title>` must equal `SITE_NAME` (tested).
   - **Images:**
     - `logo-landing.png` is `logo.png` resized to 960 × 640: 303 KB instead of 2.4 MB, with transparency kept. CSS crops the empty bottom third.
@@ -1551,7 +1551,7 @@ Stand up the production Supabase project and the Cloudflare Pages site on the cu
 - Apply migrations per SETUP_SUPABASE.md Step 6. Before any invitations go out, the admin sets the event date and theme, which creates the first `event_settings` row. Rows created earlier would be stamped with the calendar year (ADR-008).
 - From ISSUE-005: on prod, apply **only** `db/seed/001_admin.sql` (SETUP_SUPABASE.md Step 7). Never apply `002_test_data_2025.sql`. Its guard can't recognise a new prod project that has no event yet. Then sign in as gwpage@gmail.com to link the admin profile.
 - From ISSUE-010 (ADR-024):
-  - Replace the stand-in domain `boardgameolympics.example` in `index.html`'s `og:url` and `og:image` with the real one.
+  - The production domain is **`boardgameolympics.net`** (the Boss, 2026-11-16). `index.html`'s `og:url` and `og:image` already use it, and SETUP_CLOUDFLARE.md / SETUP_SUPABASE.md name it. Check that `https://boardgameolympics.net/assets/images/og-image.png` loads once deployed.
   - Before going live, nothing marked `data-placeholder` or `placeholder: true` should remain. README § Placeholder content has the `grep`; consider making it a deploy check.
 ---
 

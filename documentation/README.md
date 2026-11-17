@@ -308,9 +308,8 @@ Replace them, and the placeholder copy, as items in [`CONTENT_CHECKLIST.md`](./C
 - To deliver a piece, replace the text and remove the mark.
 - To list what's left:
   ```sh
-  grep -rn 'data-placeholder\|placeholder: true\|boardgameolympics.example' public/
+  grep -rn 'data-placeholder\|placeholder: true' public/
   ```
-  The domain `boardgameolympics.example` in the Open Graph tags is a stand-in until ISSUE-030.
 
 **If the logo changes**, regenerate the two derived images:
 ```sh
