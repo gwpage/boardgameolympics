@@ -83,6 +83,8 @@ This document defines the color palette for both light and dark themes, and prov
 
 ## Implementation Guide
 
+> **As built (ISSUE-006, ADR-020):** see `public/css/styles.css`, the inline script in `public/index.html`, and `public/js/theme.js`. The snippets below are the original sketch. The real code also always sets `data-theme` (to `light` too), survives a throwing `localStorage`, and follows live OS changes until the toggle is clicked.
+
 ### CSS Custom Properties
 
 Define all colors as CSS custom properties (variables) on the `:root` selector. Use a `[data-theme="dark"]` attribute on the `<html>` element to override them for dark mode.
