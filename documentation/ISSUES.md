@@ -590,43 +590,65 @@ Helpers that the feed, message board, sidebar, and admin all need. Putting them 
 ## [ISSUE-009] App shell, hash router & auth-state views
 
 - **Type:** Feature
-- **Status:** Open
+- **Status:** Complete
 - **Branch:** `issue/009-app-shell-router`
 - **Spec Reference:** SPEC.md § Home Page (Single URL, Two Views), § Page Structure, § Session Management (logout)
-- **PR:** —
+- **PR:** #11
 
 ### Description
 `app.js` resolves auth state, then routes to the right view. It also renders the authenticated layout: header, nav, theme toggle, logout, sidebar slot, and main content.
 
 ### Acceptance Criteria
-- [ ] Routes: `#/` (home), `#/rules`, `#/profile`, `#/admin`. Unknown routes go to `#/`.
-- [ ] Logged out → landing view on every route. Signed in without a profile → registration or not-invited view. A non-admin on `#/admin` → home.
-- [ ] Auth callback fragments (`#access_token=…`, `#error=…`) are consumed by Supabase **before** routing and are never treated as routes.
-- [ ] A loading state shows while the session resolves, so logged-in users never see a flash of the landing page.
-- [ ] Logout is available on every authenticated page.
+- [x] Routes: `#/` (home), `#/rules`, `#/profile`, `#/admin`. Unknown routes go to `#/`.
+- [x] Logged out → landing view on every route. Signed in without a profile → registration or not-invited view. A non-admin on `#/admin` → home.
+- [x] Auth callback fragments (`#access_token=…`, `#error=…`) are consumed by Supabase **before** routing and are never treated as routes.
+- [x] A loading state shows while the session resolves, so logged-in users never see a flash of the landing page.
+- [x] Logout is available on every authenticated page.
 
 ### Tests
 - **Test file(s):** `tests/js/test_009_router.js`
-- [ ] `resolveView` matrix:
+- [x] `resolveView` matrix:
   - logged out × every route → landing
   - no profile → registration or not-invited
   - member `#/admin` → home
   - admin `#/admin` → admin
   - `#/nope` and an empty hash → home
-- [ ] Hashes starting `#access_token`, `#refresh_token`, `#error` are identified as auth callbacks.
-- [ ] Nav marks the active route.
+- [x] Hashes starting `#access_token`, `#refresh_token`, `#error` are identified as auth callbacks.
+- [x] Nav marks the active route.
 
 ### Tasks
-- [ ] Write tests
-- [ ] Router and view resolver
-- [ ] Layout markup and nav
-- [ ] ADR: hash routing (A8)
+- [x] Write tests
+- [x] Router and view resolver
+- [x] Layout markup and nav
+- [x] ADR: hash routing (A8) → ADR-023
 
 ### Notes
 - Depends on: 007.
 - Client route guards are UX only. RLS (003) is the real enforcement; say so in a comment.
 - From ISSUE-006 (ADR-020): the header already exists as static markup in `index.html`: `<header class="site-header">`, outside `#app`, holding the theme toggle. Add the logo, nav and logout to it. Don't render a second header or toggle.
 - From ISSUE-007 (ADR-021): `boot()` already starts the theme, then calls `getSupabase()`. It returns the client, or `null` once a setup error is showing. Route only after `await client.auth.getSession()`, which waits for supabase-js to consume an `#access_token` / `#error` fragment (`detectSessionInUrl`).
+
+- As built (ADR-023, README § App shell and routing):
+  - **`public/js/router.js`** (new; the spec deviation is noted in its header) holds the pure part: `parseRoute`, `isAuthCallback`, `readAuthCallbackError`, `resolveView` and `navLinks`. **`app.js`** keeps `boot()` unchanged and adds `startApp()`, `loadAccount()`, `loadMembership()` and `renderNav()`.
+  - **Routes** match exactly, with a trailing slash allowed. `#/admin/<panel>` is accepted for ISSUE-020. Unknown routes show home and the address bar is corrected to `#/` with `replaceState`. So is `#/admin` for a non-admin. Known routes stay in the address bar for non-members.
+  - **Auth callbacks:** nothing reads or changes the URL until `getSession()` has returned. After that, a leftover `#error=…` is removed and kept as `callbackError` for ISSUE-011. A leftover `#access_token=…` (refused by Supabase) is removed with a warning that never includes the token. The trailing `#` supabase-js leaves is tidied away. The query string is always kept.
+  - **Membership until ISSUE-012:** `current_member_id()`, then that profile's `id, name, role`. No id means "not invited". A failed call means "unavailable", with Try again.
+  - Beyond the AC:
+    - an "unavailable" view when Supabase can't be reached, including when an expired session can't be renewed offline (`AuthRetryableFetchError`), so a member isn't shown the landing page;
+    - the Admin nav link for the admin only;
+    - `<title>` per page, and focus moved to the page heading after navigation;
+    - Log out signs out of **this browser only** (`scope: 'local'`), then reads the session again;
+    - reloads on `SIGNED_OUT`, or on `SIGNED_IN` for a different person, with stale loads dropped.
+  - Views other than loading, not invited and unavailable are placeholders naming their issue. The member layout (sidebar slot, then page) is built once per sign-in.
+  - CSS: header wraps the nav onto its own row on phones and drops the logo text below 26rem; buttons are outlined, because no filled-button text colour reaches 4.5:1 in the dark theme.
+- Results:
+  - `tests/run.sh`: PASS 204/204 (63 new) in each of America/Chicago, Pacific/Kiritimati and Etc/GMT+12. Five back-to-back runs (15 suite runs) were all green.
+  - Mutation check: 85 deliberate breaks to `router.js`, `app.js`, `index.html` and the CSS. The first run caught 84. The miss was an empty admin sub-route segment (`#/admin//users`); that case is now tested and all 85 are caught.
+  - Checked outside the suite:
+    - In headless Chrome with the dev config, signed out, the real page shows the landing view with no console output, at `/public/` and at `#/rules`. Nothing is fetched until someone signs in.
+    - `#error=access_denied&error_code=otp_expired&…` ends at `/public/` on the landing view, with the warning logged.
+    - A fake `#access_token` is refused by dev Supabase. The URL then ends at `/public/?invite=abc` (query kept) on the landing view.
+    - Every state was checked at 360 px and on desktop, in both themes.
 
 ---
 
@@ -663,6 +685,10 @@ The public advertisement for the event: same URL as the dashboard, shown when lo
 ### Notes
 - Depends on: 003 (RPC), 009.
 - From ISSUE-003: `get_public_event_info()` returns `[]` or `[{year, event_date}]`. Use `supabase.rpc('get_public_event_info').maybeSingle()`. It is the only thing `anon` can call (ADR-016).
+- From ISSUE-009 (ADR-023, README § App shell and routing):
+  - Replace the `VIEW.LANDING` placeholder in `app.js`'s `VIEWS` table with your render function. It gets `{ doc, account, route, retry }` and must return one element with `data-view="landing"`, which test_009 looks for.
+  - The landing view shows on every route while logged out, and the hash is left alone. Don't add a header, logo or theme toggle: they're in `index.html`'s static header.
+  - Show the date with `formatEventDate()` (ISSUE-008).
 
 ---
 
@@ -706,6 +732,10 @@ Login UI and flows for Google, Facebook, and email magic link, plus logout. Invi
 - Seeded and admin-created users have no auth account yet. Their first sign-in must be Google/Facebook or come through an invite link.
 - Facebook apps must be switched to Live mode for non-developer users, and app review may apply.
 - From ISSUE-007 (ADR-021): `signOut()` calls the storage's `removeItem()`, which deletes every `sb-…-auth-token` chunk. To test logout without the network, pass `createSupabaseClient()` a fake library, plus a `createCookieStorage({ cookieJar })` built on a fake jar (see `tests/js/test_007_cookie_storage.js`).
+- From ISSUE-009 (ADR-023):
+  - Logout is already wired: `#logout-button` calls `signOut({ scope: 'local' })` (this browser only), clears the hash, then reads the session again. test_009 covers the button. Add the "no `sb-` cookies left" check here, and move the handler into `auth.js` if it grows.
+  - A failed sign-in comes back as `#error=…&error_code=…&error_description=…`. supabase-js leaves it in the URL. `startApp()` removes it and keeps it as `callbackError` (`{ error, code, description }`). To show the friendly message, add `callbackError` to the context `show()` passes to views, and map `code` with `mapAuthError`.
+  - Build redirect URLs from `location.origin + location.pathname`, so they work at `/public/` locally. The router keeps `?invite=` through every URL rewrite.
 
 ---
 
@@ -762,6 +792,11 @@ Turn a signed-in auth user into a member, or reject them. This is where invitati
 - Tokens are exactly 64 lowercase hex characters (`^[0-9a-f]{64}$`, enforced by a DB check; ADR-009). `parseInviteToken` should accept exactly that.
 - Match emails with `lower(email) = lower(<auth email>)`. The unique index is on `lower(email)`.
 - From ISSUE-003: `authenticated` has no INSERT on `users`, and can't write `auth_user_id`, `invitation_id` or `invitations.use_count`. So `claim_membership` must be `SECURITY DEFINER` with `set search_path = ''`, and EXECUTE granted to `authenticated` only. Copy the revoke/grant pattern at the end of `002_rls.sql`. Raise `42501` for refusals so they match the RLS errors.
+- From ISSUE-009 (ADR-023):
+  - Replace `loadMembership()` in `app.js` with the claim. Keep its contract: `(client, session) → { state, profile }`, where `state` is `ACCOUNT.MEMBER`, `NEEDS_REGISTRATION`, `NOT_INVITED` or `DEACTIVATED` (from `router.js`), and `profile` has at least `id, name, role`. Throw on a failed call: that shows "Can't reach" with Try again, never "not invited". The router already maps each state to its view (test_009).
+  - The not-invited view exists: `data-view="not_invited"`, with `data-reason` set to the state. Add the sign-out to it.
+  - Replace the `VIEW.REGISTRATION` placeholder. After the form saves, call `retry()` from the view context to reload the account, which then shows the dashboard.
+  - `?invite=TOKEN` is in the query string, which the router never touches. The hash is cleared on logout.
 
 ---
 
@@ -798,6 +833,7 @@ A sidebar on every authenticated page with the event date (prominent), theme tit
 - Depends on: 003, 008, 009.
 - From ISSUE-003: members can read every `event_settings` row. Fetch the current one with `select('event_date,theme_title,theme_desc').order('year', {ascending: false}).limit(1).maybeSingle()`.
 - From ISSUE-008 (ADR-022): show the date with `formatEventDate(settings.event_date)`, which gives "Saturday, February 15, 2025" in every time zone. Never use `new Date(event_date)`, which is the day before in the Americas. Escape title and description with `escapeHtml`, or set `textContent`.
+- From ISSUE-009 (ADR-023): the sidebar is `<aside id="sidebar" class="sidebar" aria-label="This year's event">`, built in `showInMemberLayout()` in `app.js`; replace its placeholder there. The layout is built once per sign-in and kept while the member moves between pages, so a fetch started there runs once per page load (A9). On narrow screens it already sits above the page (`.member-layout`); add the collapse.
 
 ---
 
@@ -834,6 +870,7 @@ A sidebar on every authenticated page with the event date (prominent), theme tit
 
 ### Notes
 - Depends on: 012.
+- From ISSUE-009 (ADR-023): replace the `VIEW.PROFILE` placeholder in `app.js`'s `VIEWS`. `account.profile` holds only `id, name, role`; select the other columns you need. After saving a name change, call `retry()` from the view context if the header or other views should pick it up.
 - From ISSUE-003 (ADR-015): `users.email` can't be read through the API, not even your own. Show the email from the Auth session (`session.user.email`). Reads of `users` must list columns (`id,name,country,flag_url,rsvp,role,created_at`), because `select=*` is refused. Updates may send only `name`, `country`, `flag_url` and `rsvp`; any other column is refused.
 
 ---
@@ -917,7 +954,7 @@ Post and read plain-text messages, newest first, with infinite scroll.
   - Times: `formatRelativeTime(created_at)`, plus `formatFullTimestamp(created_at)` for the hover title. Avatars: `avatarUrl(author?.flag_url)`.
   - Pass rows on exactly as Supabase returns them. The cursor needs the raw `created_at` string, which has microseconds.
   - If the board was empty, the sentinel shows the empty text. When the first post is prepended, clear it with `sentinel.replaceChildren()`, or hide it with CSS (`.scroll-status[data-state="done"]` after a non-empty list).
-
+- From ISSUE-009 (ADR-023): the board goes in the `#message-board` section that `renderHome()` in `app.js` draws (replace its placeholder). Navigating away replaces the page and drops its elements, with no teardown hook yet. Add one in `show()` and use it to `destroy()` the scroller, so its observer doesn't outlive the page.
 ---
 
 ## [ISSUE-017] Meeple likes
@@ -996,7 +1033,7 @@ A reverse-chronological feed of country claims and new messages, which gives the
   - Give the view one time column, e.g. `occurred_at`, and an `id` column holding each source row's uuid. Then use `applyKeysetPage(query, { after: lastRow, timeColumn: 'occurred_at', limit: batchSize })`.
   - Ties on time are broken by `id`. Claim and message ids are both random uuids, so they never collide. test_008 already pages 45 mixed, tied rows through the helper without gaps or repeats; this issue's cursor test can reuse that approach.
   - Use `createInfiniteScroll`, `formatRelativeTime` and `formatFullTimestamp` as in ISSUE-016. Escape country names and previews with `escapeHtml`.
-
+- From ISSUE-009 (ADR-023): the feed goes in the `#activity-feed` section that `renderHome()` in `app.js` draws. See the teardown note under ISSUE-016; whichever lands first adds the hook.
 ---
 
 ## [ISSUE-019] Rules page
@@ -1027,6 +1064,7 @@ A reverse-chronological feed of country claims and new messages, which gives the
 
 ### Notes
 - Depends on: 009.
+- From ISSUE-009 (ADR-023): replace the `VIEW.RULES` placeholder in `app.js`'s `VIEWS`. Keep an `<h1 tabindex="-1">`: focus moves to it when a member opens the page from the nav.
 - If the sheet changes every year, move its URL into `event_settings` later.
 
 ---
@@ -1059,6 +1097,7 @@ An admin-only area with one panel per admin capability. Later issues fill in eac
 
 ### Notes
 - Depends on: 012. The admin has to be able to sign in and get linked first.
+- From ISSUE-009 (ADR-023): two of the tests already pass. The Admin link shows only for the admin (`navLinks`), and a non-admin on `#/admin` or `#/admin/<panel>` is sent to `#/` (test_009). The router accepts `#/admin/<panel>` and passes `route.subpath` (`['users']`) to the view; an empty subpath means the default panel. Unknown panel names are for `admin.js` to handle. Replace the `VIEW.ADMIN` placeholder.
 
 ---
 
@@ -1426,6 +1465,7 @@ Make the whole site work well on phones and tablets, and be usable with a keyboa
 
   The Boss will need to pick adjusted values.
 
+- From ISSUE-009: because of the dark `--btn-primary` ratio above, ISSUE-009's buttons (Log out, Try again) are outlined rather than filled. Fill them if the palette changes. The header, nav and message views were checked at 360 px in both themes.
 ---
 
 ## [ISSUE-030] Production deployment

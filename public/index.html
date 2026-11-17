@@ -66,16 +66,30 @@
 <body>
   <!--
     Static header, outside #app, so it shows on every view and rendering a
-    view never removes it. ISSUE-009 adds the logo, nav and logout here.
-    The theme toggle ships hidden and empty. js/theme.js draws its icon and
-    label and then reveals it, so without scripts there's no dead button.
+    view never removes it (ADR-020, ADR-023).
+    - The logo links home. It uses the small logo: logo.png is 2 MB.
+    - The nav and Log out button ship hidden and empty. js/app.js fills in the
+      nav for members, and shows Log out to anyone signed in, once it knows
+      who the visitor is.
+    - The theme toggle also ships hidden and empty. js/theme.js draws its icon
+      and label and then reveals it, so without scripts there's no dead button.
   -->
   <header class="site-header">
+    <a class="site-logo" href="#/">
+      <img src="assets/images/logo-small.png" alt="" width="40" height="40">
+      <span class="site-logo-text">Board Game Olympics</span>
+    </a>
+    <nav id="site-nav" class="site-nav" aria-label="Main" hidden></nav>
     <button id="theme-toggle" class="theme-toggle" type="button" hidden></button>
+    <button id="logout-button" class="logout-button" type="button" hidden>Log out</button>
   </header>
 
   <noscript>Board Game Olympics needs JavaScript enabled.</noscript>
-  <!-- js/app.js renders the landing page or the dashboard into #app (ISSUE-009). -->
+  <!--
+    js/app.js renders the view into #app: the landing page, the dashboard and
+    member pages, or a sign-in state (ISSUE-009). "Loading…" is the first
+    paint, so a signed-in member never sees the landing page flash up.
+  -->
   <main id="app">Loading…</main>
 </body>
 </html>
