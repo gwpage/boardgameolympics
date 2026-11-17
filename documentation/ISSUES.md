@@ -523,7 +523,7 @@ A single Supabase client configured from `CONFIG`, whose session is stored in lo
 - **Status:** Complete
 - **Branch:** `issue/008-shared-utilities`
 - **Spec Reference:** SPEC.md § Message Board (pagination), § Profile Rules (avatar), § Project Structure ("split it further")
-- **PR:** —
+- **PR:** #10
 
 ### Description
 Helpers that the feed, message board, sidebar, and admin all need. Putting them in one early issue lets those issues proceed in parallel.
