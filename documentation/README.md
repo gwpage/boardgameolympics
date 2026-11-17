@@ -58,7 +58,7 @@ Site code uses **relative paths only** (no leading `/`), so the site works at `/
 
 3. Open the site at **http://localhost:8000/public/**.
 
-Until the app is built out (ISSUE-009 onward), the page shows only the header, with its theme toggle, and "Loading…".
+Until the app is built out (ISSUE-009 onward), the page shows only the header, with its theme toggle, and "Loading…". If it shows **"Board Game Olympics can't start"** instead, `config.js` is missing or wrong; the box says what to fix (see [Supabase client and sessions](#supabase-client-and-sessions)).
 
 ---
 
@@ -163,6 +163,28 @@ There are two themes: light, and dark ("Game Night Mode"). Their colours are CSS
 - **How the theme is chosen:** a saved choice (localStorage key `theme`), otherwise the OS setting, which is followed live until the toggle is first clicked.
 - **To go back to following the OS:** delete the `theme` key in the browser's dev tools (Application → Local Storage) and reload.
 - **The inline script in `index.html`'s `<head>`** repeats `resolveTheme()` from `public/js/theme.js`, because it must run before the first paint. Keep the two in sync; the test runs the inline script and compares. Editing it also changes the hash production's Content-Security-Policy allows (ISSUE-030).
+
+---
+
+## Supabase client and sessions
+
+`public/js/supabase.js` creates the app's one Supabase client (ADR-021). Get it with `getSupabase()`; never call `supabase.createClient()` anywhere else.
+
+- **Where the session lives:** in cookies, not localStorage, so it survives browser restarts. They're named `sb-<project-ref>-auth-token`, or `…-auth-token.0`, `.1`, … when the session is too big for one cookie. To inspect them or sign out by hand, open DevTools → Application → Cookies.
+- **How long it lasts:** the cookies are set for a year, and every visit renews them. Safari cuts cookies set from JavaScript to 7 days, so a Safari user who stays away longer than that signs in again.
+- **If cookies are blocked:** signing in still works, but only until the page is closed or reloaded. The console shows a "Session storage" warning.
+- **Auth flow:** implicit, not PKCE, so a magic link works even when opened in a different browser or a mail app's built-in browser.
+
+**"Board Game Olympics can't start"** means the client couldn't be created. The box lists each problem; the same text goes to the console. The usual causes:
+
+| Message mentions | Fix |
+|------------------|-----|
+| `config.js didn't load` | Locally: `cp public/config.example.js public/config.js` and fill it in. On Pages: check the build command is `sh scripts/write-config.sh`. |
+| `placeholder` | `config.js` was copied but not filled in. Use the values from the dashboard's **Connect** button. |
+| `SECRET key` | A `sb_secret_…` key is in `config.js`. Replace it with the publishable key, and if it was ever deployed, revoke it in the dashboard (Project Settings → API Keys). |
+| `legacy anon or service_role key` / `not a publishable key` | Use the `sb_publishable_…` key (ADR-014). |
+| `https://` | `SUPABASE_URL` must be the `https://…supabase.co` project URL. |
+| `cdn.jsdelivr.net` | The Supabase library didn't load: offline, blocked by a content blocker, or `index.html`'s version and integrity hash don't match (see below). |
 
 ---
 
