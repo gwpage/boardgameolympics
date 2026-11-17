@@ -721,7 +721,7 @@ The public advertisement for the event: same URL as the dashboard, shown when lo
 - **Status:** Complete
 - **Branch:** `issue/011-authentication`
 - **Spec Reference:** SPEC.md § Authentication, § Session Management; SETUP_SUPABASE.md Step 4
-- **PR:** —
+- **PR:** #13
 
 ### Description
 Login UI and flows for Google, Facebook, and email magic link, plus logout. Invite tokens survive the round-trip to the auth provider.
