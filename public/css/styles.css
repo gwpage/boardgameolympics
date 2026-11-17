@@ -3,13 +3,71 @@
  *
  * One stylesheet, organised by section comments (SPEC § Project Structure).
  * Colours come ONLY from the CSS custom properties in "Theme tokens"
- * (COLORS.md). Never hard-code hex values elsewhere; ISSUE-006 adds a test
- * that enforces this.
+ * (COLORS.md). Never hard-code hex values elsewhere:
+ * tests/js/test_006_theme.js fails on any hex colour outside the two token
+ * blocks, and on any token that doesn't match COLORS.md exactly.
  *
  * Sections are filled in by the issue noted beside each one.
  */
 
-/* === Theme tokens: light default + [data-theme="dark"] (ISSUE-006) === */
+/* === Theme tokens: light default + [data-theme="dark"] (ISSUE-006) ===
+ *
+ * Copied from COLORS.md; change colours there first, then here (the test
+ * compares the two). <html data-theme="light|dark"> is always set before first
+ * paint by the inline script in index.html, then kept up to date by
+ * js/theme.js. :root alone is the light theme, so the page is still readable
+ * if scripts never run.
+ *
+ * color-scheme tells the browser which theme native parts should use:
+ * scrollbars, form controls, date pickers, the default canvas.
+ */
+
+:root {
+  color-scheme: light;
+
+  --bg-page: #F7F6F3;
+  --bg-card: #FFFFFF;
+  --bg-subtle: #EFEDE8;
+  --border: #E0DED9;
+
+  --text-primary: #1C1C1C;
+  --text-secondary: #5A5A5A;
+  --text-muted: #8A8A8A;
+  --text-link: #1F5FBF;
+
+  --btn-primary: #1F5FBF;
+  --btn-primary-hover: #174A95;
+  --btn-secondary: #D62828;
+  --btn-secondary-hover: #A61E1E;
+  --color-success: #2E8B57;
+  --color-gold: #F2B705;
+  --meeple-inactive: #C8C4BC;
+  --meeple-active: #E8740C;
+}
+
+/* Dark theme, "Game Night Mode". Same specificity as :root and later in the file, so it wins. */
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg-page: #121212;
+  --bg-card: #1E1E1E;
+  --bg-subtle: #262626;
+  --border: #333333;
+
+  --text-primary: #F2F2F2;
+  --text-secondary: #C8C8C8;
+  --text-muted: #9A9A9A;
+  --text-link: #3A7DDE;
+
+  --btn-primary: #3A7DDE;
+  --btn-primary-hover: #2C66B8;
+  --btn-secondary: #D94A4A;
+  --btn-secondary-hover: #B73737;
+  --color-success: #4CAF50;
+  --color-gold: #FFD23F;
+  --meeple-inactive: #555555;
+  --meeple-active: #F2960C;
+}
 
 /* === Base: element defaults, typography === */
 
@@ -18,9 +76,69 @@ body {
   /* System font stack: no web-font download, no third-party dependency. */
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   line-height: 1.5;
+  background-color: var(--bg-page);
+  color: var(--text-primary);
+}
+
+a {
+  color: var(--text-link);
 }
 
 /* === Layout: header, sidebar, main (ISSUE-009, ISSUE-013) === */
+
+/*
+ * The site header is static markup in index.html, outside #app, so it's on
+ * every view (landing, loading, dashboard). ISSUE-006 added it for the theme
+ * toggle; ISSUE-009 adds the logo, nav and logout.
+ */
+.site-header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  /* Room for the 44px toggle, so revealing it after scripts load doesn't shift the page. */
+  min-height: 3.75rem;
+  padding: 0 1rem;
+  box-sizing: border-box;
+  background-color: var(--bg-card);
+  border-bottom: 1px solid var(--border);
+}
+
+/* === Theme toggle (ISSUE-006) === */
+
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* 44px is the recommended minimum touch target on phones. */
+  width: 2.75rem;
+  height: 2.75rem;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background-color: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.theme-toggle:hover {
+  background-color: var(--bg-subtle);
+}
+
+.theme-toggle:focus-visible {
+  outline: 2px solid var(--text-link);
+  outline-offset: 2px;
+}
+
+/* The sun only shows in dark mode; COLORS.md allows gold for icons. */
+.theme-toggle[data-icon="sun"] {
+  color: var(--color-gold);
+}
+
+/* `hidden` must win over display: inline-flex above, or the un-wired button would show. */
+.theme-toggle[hidden] {
+  display: none;
+}
 
 /* === Landing page (ISSUE-010) === */
 

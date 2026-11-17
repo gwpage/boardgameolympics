@@ -16,9 +16,12 @@
  *   imported from here.
  */
 
-/** Starts the app. Placeholder until the router and views arrive in ISSUE-009. */
+import { initTheme } from './theme.js';
+
+/** Starts the app. The router and views arrive in ISSUE-009. */
 export function boot() {
-  // Intentionally empty for ISSUE-001: the scaffold only proves the module loads.
+  // First, so the header toggle works on every view, even before auth resolves.
+  initTheme();
 }
 
 // The test page (tests/index.html) imports app modules to test their functions,

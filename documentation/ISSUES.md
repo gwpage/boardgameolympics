@@ -412,38 +412,52 @@ Idempotent seed scripts: the admin account (all environments) and the 2025 test 
 ## [ISSUE-006] Theme system (light / Game Night Mode)
 
 - **Type:** Feature
-- **Status:** Open
+- **Status:** Complete
 - **Branch:** `issue/006-theme-system`
 - **Spec Reference:** COLORS.md (all); SPEC.md § Project Structure (`theme.js`)
-- **PR:** —
+- **PR:** #8
 
 ### Description
 CSS color tokens for both themes, flash-free initial theme selection, and a persistent toggle.
 
 ### Acceptance Criteria
-- [ ] `public/css/styles.css` defines every COLORS.md token on `:root` (light) and `[data-theme="dark"]`. No hex colors appear outside the token blocks.
-- [ ] An inline `<head>` script applies the saved preference, otherwise the system preference, before first paint.
-- [ ] A header toggle switches theme and persists it. It shows a moon icon in light mode and a sun in dark mode, with an accessible label.
-- [ ] With no saved preference, live OS theme changes are followed.
-- [ ] A throwing `localStorage` (private mode) doesn't break the page.
+- [x] `public/css/styles.css` defines every COLORS.md token on `:root` (light) and `[data-theme="dark"]`. No hex colors appear outside the token blocks.
+- [x] An inline `<head>` script applies the saved preference, otherwise the system preference, before first paint.
+- [x] A header toggle switches theme and persists it. It shows a moon icon in light mode and a sun in dark mode, with an accessible label.
+- [x] With no saved preference, live OS theme changes are followed.
+- [x] A throwing `localStorage` (private mode) doesn't break the page.
 
 ### Tests
 - **Test file(s):** `tests/js/test_006_theme.js`
-- [ ] `resolveTheme('dark', false)` → dark; `(null, true)` → dark; `(null, false)` → light; `('light', true)` → light.
-- [ ] `nextTheme` flips dark↔light, and `nextTheme(null)` → dark.
-- [ ] Every token in COLORS.md appears in `styles.css` with the identical hex for both themes (parse both files).
-- [ ] `styles.css` contains no hex colors outside the token blocks.
-- [ ] Toggling with a throwing `localStorage` still switches the theme.
+- [x] `resolveTheme('dark', false)` → dark; `(null, true)` → dark; `(null, false)` → light; `('light', true)` → light.
+- [x] `nextTheme` flips dark↔light, and `nextTheme(null)` → dark.
+- [x] Every token in COLORS.md appears in `styles.css` with the identical hex for both themes (parse both files).
+- [x] `styles.css` contains no hex colors outside the token blocks.
+- [x] Toggling with a throwing `localStorage` still switches the theme.
+- [x] Also covered:
+  - an unrecognised saved value counts as no choice;
+  - start-up applies the saved choice, otherwise the OS setting, otherwise light (no `matchMedia`);
+  - the toggle saves the choice, and its icon, label and tooltip match the theme, with the icon `aria-hidden`;
+  - live OS changes are followed until a choice is made, and ignored after a toggle even when saving failed;
+  - storage failures log a warning on read and on save;
+  - the inline `<head>` script, run against fakes, chooses the same theme as `resolveTheme()` and `initTheme()` in all 15 saved × OS cases;
+  - `index.html` has the toggle as a hidden `type="button"` in a `<header>` outside `#app`.
 
 ### Tasks
-- [ ] Write tests
-- [ ] Tokens in `styles.css`
-- [ ] Inline head script and `public/js/theme.js`
-- [ ] Toggle button and icons
+- [x] Write tests
+- [x] Tokens in `styles.css`
+- [x] Inline head script and `public/js/theme.js`
+- [x] Toggle button and icons
 
 ### Notes
 - Depends on: 001.
 - The inline script duplicates `resolveTheme` because it has to run before modules load. Comment both copies so they stay in sync.
+- As built (ADR-020):
+  - `data-theme` is always set, to `light` or `dark`. Each token block also sets `color-scheme`, so native controls match.
+  - The toggle is in a new static `<header class="site-header">` in `index.html`, outside `#app`, so it's on the landing, loading and dashboard views. It ships `hidden`; `theme.js` draws the inline SVG icon and label, then reveals it. `app.js`'s `boot()` calls `initTheme()` first.
+  - The choice is saved only when the toggle is clicked. There's no "back to automatic" option; clearing the `theme` key does that (README § Colours and themes).
+  - COLORS.md got an "as built" pointer above its original sketch.
+- Results: `tests/run.sh` PASS 54/54 (20 new). A mutation check broke the inline script, `index.html`, `styles.css` and `theme.js` 33 different ways, and every one failed the suite. Headless Chrome on the real page showed `data-theme` and the toggle (moon or sun, label) correct with the OS in light and in dark.
 
 ---
 
@@ -569,6 +583,7 @@ Helpers that the feed, message board, sidebar, and admin all need. Putting them 
 ### Notes
 - Depends on: 007.
 - Client route guards are UX only. RLS (003) is the real enforcement; say so in a comment.
+- From ISSUE-006 (ADR-020): the header already exists as static markup in `index.html`: `<header class="site-header">`, outside `#app`, holding the theme toggle. Add the logo, nav and logout to it. Don't render a second header or toggle.
 
 ---
 
@@ -1407,6 +1422,7 @@ Stand up the production Supabase project and the Cloudflare Pages site on the cu
 ### Notes
 - Depends on: 001–029, 032.
 - The Boss performs the dashboard and DNS steps. Claude prepares the files, checklists, and doc updates.
+- From ISSUE-006 (ADR-020): the CSP must allow the inline theme script in `index.html` by its `sha256-…` hash, not `'unsafe-inline'`. Hash the exact text between `<script>` and `</script>`, whitespace included. Consider a test that recomputes the hash and checks `_headers` contains it, so an edit to the script can't silently break the theme on prod.
 
 - Apply migrations per SETUP_SUPABASE.md Step 6. Before any invitations go out, the admin sets the event date and theme, which creates the first `event_settings` row. Rows created earlier would be stamped with the calendar year (ADR-008).
 - From ISSUE-005: on prod, apply **only** `db/seed/001_admin.sql` (SETUP_SUPABASE.md Step 7). Never apply `002_test_data_2025.sql`. Its guard can't recognise a new prod project that has no event yet. Then sign in as gwpage@gmail.com to link the admin profile.

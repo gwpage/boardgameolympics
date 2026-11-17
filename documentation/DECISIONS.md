@@ -403,3 +403,27 @@ Format: `~/.claude/rules/quality.md`. Open work that implements these lives in [
   - After Start New Year has been tried on dev (ISSUE-028), there's a 2026 event, so the 2025 seed refuses to run.
   - A brand-new prod project, with no events yet, isn't covered by the guard. The banner and SETUP_SUPABASE.md Step 7 are the safeguard there.
   - Changing the test data means changing SEED_DATA_2025.md, `002_test_data_2025.sql` and `test_005`'s expected data together.
+
+---
+
+## [ADR-020] Theme: explicit `data-theme`, a tested inline copy, and a static header toggle
+- **Date:** 2026-11-16
+- **Status:** Accepted
+- **Context:** COLORS.md sketches the theme system: CSS tokens, an inline `<head>` script and a toggle. ISSUE-006 had to settle what the sketch leaves open:
+  - The inline script must run before any module loads, so it can't import `resolveTheme()`. Two copies of the rule can drift apart.
+  - `localStorage` can throw (blocked site data, old Safari private mode).
+  - The toggle belongs in "the header", but the header was going to come with ISSUE-009's app shell.
+  - When should the OS setting stop applying?
+- **Decision:**
+  - **`<html data-theme>` is always set, to `light` or `dark`.** It's never left off for light. The inline script sets it before the stylesheet loads, and `theme.js` takes over when `app.js` boots. `:root` alone is still the light theme, so the page is readable if scripts never run.
+  - **The inline copy is checked by running it.** `test_006_theme.js` pulls the script out of `index.html` and runs it with a fake `window`, `document` and `localStorage`. It covers every combination of saved value (dark, light, none, junk, throwing storage) and OS setting (dark, light, no `matchMedia`). It fails if the script ever chooses differently from `resolveTheme()` and `initTheme()`. Comments alone wouldn't keep the copies in sync.
+  - **Two states, with the OS as the default.** The choice is saved only when the toggle is clicked. Until then, live OS theme changes are followed. After a click, the choice sticks. There is no "back to automatic" option.
+  - **Storage failures degrade.** If reading fails, the OS setting applies. If saving fails, the choice holds in memory for the rest of the visit. Either way a `console.warn` is logged.
+  - **The toggle lives in a static `<header class="site-header">` in `index.html`, outside `#app`.** It's on every view: landing, loading and dashboard. Rendering a view never removes it. It ships `hidden` and empty, and `theme.js` draws its icon and label, then reveals it, so a page whose scripts failed has no dead button. ISSUE-009 adds the logo, nav and logout to this header instead of rendering its own.
+  - The icon shows where a click goes: a moon in light mode, a sun in dark. The `aria-label` and tooltip say the same in words, and the icon is `aria-hidden`. The icons are inline SVG drawn in `theme.js`, coloured with `currentColor`.
+  - Each token block sets `color-scheme`, so native scrollbars and form controls match the theme.
+- **Consequences:**
+  - Production's Content-Security-Policy (ISSUE-030) must allow the inline script by its `sha256-…` hash, not with `'unsafe-inline'`. Any edit to the script, even whitespace, changes the hash, and the CSP must be updated with it.
+  - Someone who clicks the toggle once never follows the OS again in that browser, unless they clear site data.
+  - Other open tabs pick up a new choice on their next load, not live.
+  - Changing a colour means changing COLORS.md and `styles.css` together. The test compares them, and fails on any hex colour outside the two token blocks.

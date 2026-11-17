@@ -15,10 +15,17 @@
   <title>Board Game Olympics</title>
 
   <!--
-    Theme bootstrap (COLORS.md § Preventing Flash of Wrong Theme).
+    Theme bootstrap (COLORS.md § Preventing Flash of Wrong Theme; ISSUE-006).
     Stays inline and runs before the stylesheet, so the correct theme is set
-    before the first paint. Same logic as resolveTheme() in js/theme.js
-    (ISSUE-006): keep the two in sync.
+    before the first paint. After that, js/theme.js takes over.
+
+    It repeats the rule in resolveTheme() in js/theme.js, plus that file's
+    storage key and media query: KEEP THEM IN SYNC.
+    tests/js/test_006_theme.js runs this script against fakes and fails if it
+    ever chooses differently from theme.js.
+
+    Production's Content-Security-Policy (ISSUE-030) must allow this script
+    by its hash. Any edit here, even whitespace, changes the hash.
   -->
   <script>
     (function () {
@@ -26,14 +33,13 @@
       try {
         saved = localStorage.getItem('theme');
       } catch (error) {
-        // Storage can be blocked (private mode, strict settings). Fall back to the system preference.
+        // Storage can be blocked (private mode, strict settings). theme.js
+        // reports this; here we just fall back to the system setting.
         saved = null;
       }
-      if (saved === 'dark' || saved === 'light') {
-        document.documentElement.setAttribute('data-theme', saved);
-      } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-        document.documentElement.setAttribute('data-theme', 'dark');
-      }
+      var systemPrefersDark = Boolean(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      var theme = saved === 'dark' || saved === 'light' ? saved : (systemPrefersDark ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-theme', theme);
     })();
   </script>
 
@@ -58,6 +64,16 @@
   <script type="module" src="js/app.js"></script>
 </head>
 <body>
+  <!--
+    Static header, outside #app, so it shows on every view and rendering a
+    view never removes it. ISSUE-009 adds the logo, nav and logout here.
+    The theme toggle ships hidden and empty. js/theme.js draws its icon and
+    label and then reveals it, so without scripts there's no dead button.
+  -->
+  <header class="site-header">
+    <button id="theme-toggle" class="theme-toggle" type="button" hidden></button>
+  </header>
+
   <noscript>Board Game Olympics needs JavaScript enabled.</noscript>
   <!-- js/app.js renders the landing page or the dashboard into #app (ISSUE-009). -->
   <main id="app">Loading…</main>

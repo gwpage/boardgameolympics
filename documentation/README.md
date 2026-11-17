@@ -58,7 +58,7 @@ Site code uses **relative paths only** (no leading `/`), so the site works at `/
 
 3. Open the site at **http://localhost:8000/public/**.
 
-Until the app is built out (ISSUE-009 onward), the page only shows "Loading…".
+Until the app is built out (ISSUE-009 onward), the page shows only the header, with its theme toggle, and "Loading…".
 
 ---
 
@@ -152,6 +152,17 @@ To change the 2025 test data, change these three together:
 - the expected data at the top of `test_005_seed.sql`.
 
 The test keeps its own copy on purpose, so a typo in one copy fails the test.
+
+---
+
+## Colours and themes
+
+There are two themes: light, and dark ("Game Night Mode"). Their colours are CSS custom properties defined once, at the top of `public/css/styles.css`. Everything else uses `var(--token)` (ADR-020).
+
+- **To change a colour:** change [`COLORS.md`](./COLORS.md) first, then the same token in `styles.css`. `tests/js/test_006_theme.js` fails if the two disagree, or if a hex colour appears anywhere outside the two token blocks.
+- **How the theme is chosen:** a saved choice (localStorage key `theme`), otherwise the OS setting, which is followed live until the toggle is first clicked.
+- **To go back to following the OS:** delete the `theme` key in the browser's dev tools (Application → Local Storage) and reload.
+- **The inline script in `index.html`'s `<head>`** repeats `resolveTheme()` from `public/js/theme.js`, because it must run before the first paint. Keep the two in sync; the test runs the inline script and compares. Editing it also changes the hash production's Content-Security-Policy allows (ISSUE-030).
 
 ---
 
