@@ -74,7 +74,14 @@ Headless, from anywhere in the repo:
 tests/run.sh
 ```
 
-It prints every test and a `PASS — n/n tests passed` or `FAIL — …` summary. The exit code is 0 on pass, 1 on failure, crash or timeout, and 2 if Chrome or Python is missing. Options: `CHROME_BIN=/path/to/chrome` and `TEST_TIMEOUT_S=300`.
+It runs the whole suite three times: in your machine's time zone, then at UTC+14 and at UTC−12 (ADR-022). Date code that depends on where it runs gets a day wrong in at least one of them. The first run prints every test; the other two print only failures. Each run ends with a summary such as `PASS — n/n tests passed [time zone: Pacific/Kiritimati]` or `FAIL — …`. The exit code is 0 only if all three runs pass, 1 on any failure, crash or timeout, and 2 if Chrome or Python is missing. Options: `CHROME_BIN=/path/to/chrome` and `TEST_TIMEOUT_S=300` (per run).
+
+To debug a test that fails in only one zone, start a separate Chrome in that zone (with the repo root served as above):
+
+```sh
+TZ=Etc/GMT+12 "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+  --user-data-dir="$(mktemp -d)" http://localhost:8000/tests/
+```
 
 In a normal browser (handy for debugging with DevTools): serve the repo root as above and open **http://localhost:8000/tests/**.
 
@@ -185,6 +192,42 @@ There are two themes: light, and dark ("Game Night Mode"). Their colours are CSS
 | `legacy anon or service_role key` / `not a publishable key` | Use the `sb_publishable_…` key (ADR-014). |
 | `https://` | `SUPABASE_URL` must be the `https://…supabase.co` project URL. |
 | `cdn.jsdelivr.net` | The Supabase library didn't load: offline, blocked by a content blocker, or `index.html`'s version and integrity hash don't match (see below). |
+
+---
+
+## Shared UI helpers
+
+`public/js/util.js` (ADR-022) holds what the feed, message board, sidebar and admin all need. Use these rather than writing your own:
+
+| Need | Use |
+|------|-----|
+| Put database text into an HTML string | `escapeHtml(text)`, or set `textContent` |
+| "5 minutes ago", "yesterday", "Feb 8" | `formatRelativeTime(row.created_at)` |
+| The full date and time, for hover text | `formatFullTimestamp(row.created_at)` |
+| The event date, "Saturday, February 15, 2025" | `formatEventDate(settings.event_date)`. Never `new Date('2025-02-15')`: that's the day before in the Americas. |
+| A member's picture | `avatarUrl(user.flag_url)`: their flag, or the default avatar |
+| Newest-first pages of 20 | `applyKeysetPage(query, { after: lastRow })` |
+| Load more on scroll | `createInfiniteScroll({ sentinel, loadBatch, renderBatch })` |
+
+A list with infinite scroll looks like this:
+
+```js
+const scroller = createInfiniteScroll({
+  sentinel,   // an empty element right after the list; it also shows "Loading…", errors and "Try again"
+  loadBatch: async (lastRow, batchSize) => {
+    const query = client.from('messages').select('id,text,created_at').eq('event_year', year);
+    const { data, error } = await applyKeysetPage(query, { after: lastRow, limit: batchSize });
+    if (error) throw error;  // shown with a Try again button
+    return data;
+  },
+  renderBatch: (rows) => list.append(...rows.map(renderMessage)),
+  text: { empty: 'No messages yet.' },
+});
+scroller.start();
+// When leaving the view: scroller.destroy();
+```
+
+Timestamps must be passed exactly as Supabase returns them. They're ISO strings with microseconds, and the pager needs those microseconds to avoid skipping or repeating rows.
 
 ---
 

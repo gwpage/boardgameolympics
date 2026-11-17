@@ -464,3 +464,28 @@ Format: `~/.claude/rules/quality.md`. Open work that implements these lives in [
   - Logout (ISSUE-011) calls `signOut()`, which calls `removeItem()`, which deletes every chunk.
   - Someone with cookies blocked can sign in, but is signed out when the page reloads.
   - Supabase's own cookie helper (`@supabase/ssr`) solves this for server-rendered apps. It's an npm dependency built around a server, so it isn't used.
+
+---
+
+## [ADR-022] Shared UI utilities: date handling, keyset pagination, and infinite scroll
+- **Date:** 2026-11-16
+- **Status:** Accepted
+- **Context:** The feed, message board, sidebar and admin all show dates and times, and two of them page through long lists. ISSUE-008 puts the shared helpers in `public/js/util.js`, a file SPEC § Project Structure doesn't list; the spec allows splitting further when needed. Points that needed settling:
+  - **Date-only values.** `new Date('2025-02-15')` means midnight UTC, which is February 14 anywhere west of Greenwich. Code that builds local midnight and formats it in UTC fails the opposite way, east of Greenwich. A test can't catch either in a browser that happens to run at UTC.
+  - **Timestamp text.** Browsers agree on ISO 8601 with a "T" and an offset, which is what PostgREST sends (verified on Postgres 17: `2025-02-14T18:30:00.123456+00:00`). Other formats parse differently, or not at all, depending on the browser. For example, Chrome reads a space instead of the "T" and Safari doesn't.
+  - **Paging.** Offset paging repeats or skips rows when posts arrive mid-scroll. Postgres timestamps carry microseconds and a JavaScript Date only milliseconds.
+  - **Infinite scroll.** An IntersectionObserver reports only changes, so a batch that doesn't fill a tall screen leaves the sentinel visible with nothing more to report. Automatic retries after an error would hammer a dead connection.
+- **Decision:**
+  - **Language.** All formatting uses `en-US`, whatever the browser's language, because the site is in English.
+  - **Event date** (`formatEventDate`): the `YYYY-MM-DD` text is checked, built with `Date.UTC`, and formatted with `timeZone: 'UTC'`, so no zone is involved at all.
+  - **Timestamps** are moments, shown in the viewer's zone: `formatRelativeTime` ("just now" → minutes → hours under 24 h → "yesterday" / "N days ago" by calendar date → "Feb 8", with the year added if different) and `formatFullTimestamp` for hover text. Anything other than ISO 8601 with a "T" and an offset is rejected with an error, never guessed at. A date-only value gets an error pointing to `formatEventDate`. A future time (viewer's clock behind) reads "just now".
+  - **The suite runs in three time zones.** `tests/run.sh` runs every test in the machine's own zone, then at UTC+14 (`Pacific/Kiritimati`) and UTC−12 (`Etc/GMT+12`), by setting `TZ` for headless Chrome and passing `?tz=`. A test fails if the browser isn't in the zone requested, so the extra runs can't silently repeat the first. A full run takes about 4 seconds.
+  - **Keyset pagination** (`applyKeysetPage`): order by time desc, id desc, and after the first batch filter with `or=(t.lt."T",and(t.eq."T",id.lt."ID"))`. The cursor (`keysetCursor`) is the last row's time and id **as the strings PostgREST sent**, never passed through Date. Both are checked (an ISO timestamp, a uuid) because they're spliced into the filter. This matches the `(event_year, <time> desc, id desc)` indexes. The real supabase-js builder produced this query string, and dev PostgREST parsed it; a malformed control got `PGRST100`.
+  - **Infinite scroll** (`createInfiniteScroll`): one sentinel element after the list both triggers loading and shows the status (loading, error with a Try again button, empty or end text). The first batch loads at once. After each batch the sentinel is unobserved and observed again, which makes the browser report its visibility afresh, so a tall screen keeps filling. One load at a time; a short batch ends the list. An error is logged and stops automatic loading until Try again. `destroy()` drops any batch still in flight.
+  - **Avatars** (`avatarUrl`): only `https://` flag URLs are used, matching the database check (ADR-012). Anything else is logged and replaced by the default avatar, whose URL is resolved from `util.js`'s own location, so it's right at `/`, at `/public/`, and from the test page.
+- **Consequences:**
+  - Event dates read the same everywhere. Times read in each viewer's own zone, which is right for "posted 5 minutes ago" but means two people abroad may see different clock times on the same post.
+  - A malformed timestamp throws instead of rendering "Invalid Date". Postgres can't produce one, so this only fires on a bug.
+  - When the total is an exact multiple of 20, the last request returns nothing. One extra small request was preferred over fetching 21 rows to detect the end.
+  - The whole test suite runs three times. Any future date code is tested in both extreme zones for free.
+  - Retrying after a render bug can draw part of a batch twice. That only happens after a bug has already been logged.
