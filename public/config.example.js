@@ -16,6 +16,12 @@
  *   data, not the key. NEVER put a secret key (sb_secret_…) or the legacy
  *   anon/service_role keys here or anywhere in public/ (ADR-014).
  *
+ * CHECKED AT START-UP
+ *   js/supabase.js (validateConfig) checks these values before connecting. If
+ *   one is missing, still a placeholder, or a secret key, the page shows
+ *   "Board Game Olympics can't start" and says what to fix (README § Supabase
+ *   client and sessions).
+ *
  * Loaded by index.html as a classic <script> before the app, so CONFIG is a
  * global visible to every module.
  */

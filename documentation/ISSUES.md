@@ -464,42 +464,56 @@ CSS color tokens for both themes, flash-free initial theme selection, and a pers
 ## [ISSUE-007] Supabase client & cookie session storage
 
 - **Type:** Feature
-- **Status:** Open
+- **Status:** Complete
 - **Branch:** `issue/007-supabase-client-session`
 - **Spec Reference:** SPEC.md § Session Management, § Configuration, § Database & Auth
-- **PR:** —
+- **PR:** #9
 
 ### Description
 A single Supabase client configured from `CONFIG`, whose session is stored in long-lived cookies so it survives browser restarts.
 
 ### Acceptance Criteria
-- [ ] `public/js/supabase.js` exports one client with `persistSession`, `autoRefreshToken`, `detectSessionInUrl`, and a custom cookie `storage` adapter.
-- [ ] Cookies are set with `Path=/; SameSite=Lax; Max-Age=31536000`, plus `Secure` on https.
-- [ ] Values over the per-cookie size limit are split across numbered chunk cookies and reassembled. Shrinking or removing a value clears stale chunks.
-- [ ] Missing or placeholder config shows a clear on-page error instead of a blank page. So does a secret key (`sb_secret_…`) pasted in by mistake.
+- [x] `public/js/supabase.js` exports one client with `persistSession`, `autoRefreshToken`, `detectSessionInUrl`, and a custom cookie `storage` adapter.
+- [x] Cookies are set with `Path=/; SameSite=Lax; Max-Age=31536000`, plus `Secure` on https.
+- [x] Values over the per-cookie size limit are split across numbered chunk cookies and reassembled. Shrinking or removing a value clears stale chunks.
+- [x] Missing or placeholder config shows a clear on-page error instead of a blank page. So does a secret key (`sb_secret_…`) pasted in by mistake.
 
 ### Tests
 - **Test file(s):** `tests/js/test_007_cookie_storage.js`
-- [ ] `setItem`/`getItem` round-trip through an injectable fake cookie jar.
-- [ ] `getItem` of a missing key → `null`.
-- [ ] A 10 KB value is split into chunks that are each under the limit, and reassembles exactly.
-- [ ] Overwriting a 3-chunk value with a 1-chunk value leaves no stale chunks.
-- [ ] `removeItem` deletes all chunks.
-- [ ] Attributes include `Max-Age=31536000`, `SameSite=Lax`, `Path=/`, and `Secure` only on https.
-- [ ] Values containing `;`, `=`, spaces, and unicode round-trip.
-- [ ] `validateConfig` rejects a missing or placeholder URL or key, and a secret key (`sb_secret_…`).
+- [x] `setItem`/`getItem` round-trip through an injectable fake cookie jar.
+- [x] `getItem` of a missing key → `null`.
+- [x] A 10 KB value is split into chunks that are each under the limit, and reassembles exactly.
+- [x] Overwriting a 3-chunk value with a 1-chunk value leaves no stale chunks.
+- [x] `removeItem` deletes all chunks.
+- [x] Attributes include `Max-Age=31536000`, `SameSite=Lax`, `Path=/`, and `Secure` only on https.
+- [x] Values containing `;`, `=`, spaces, and unicode round-trip.
+- [x] `validateConfig` rejects a missing or placeholder URL or key, and a secret key (`sb_secret_…`).
 
 ### Tasks
-- [ ] Write tests
-- [ ] Cookie storage adapter with chunking
-- [ ] Client init and config validation
-- [ ] ADR: implicit auth flow and cookie storage (A11)
+- [x] Write tests
+- [x] Cookie storage adapter with chunking
+- [x] Client init and config validation
+- [x] ADR: implicit auth flow and cookie storage (A11) → ADR-021
 
 ### Notes
 - Depends on: 001, 032.
 - The client is created from `CONFIG.SUPABASE_URL` and `CONFIG.SUPABASE_PUBLISHABLE_KEY` (ADR-014). supabase-js takes the publishable key in place of the legacy anon key with no other change.
 - Use the **implicit** flow, not PKCE. PKCE breaks magic links opened in a different browser or a mail app's in-app browser, which is common on phones.
 - Safari caps JS-set cookies at 7 days (A11). Document this in the file header.
+- As built (ADR-021):
+  - `public/js/supabase.js` exports `getSupabase()`, which creates the one client on first use and returns it after that. It also exports the testable parts: `createCookieStorage()`, `validateConfig()`, `createSupabaseClient()`, `SetupError` and `renderSetupError()`.
+  - Cookies: values are percent-encoded, then split into chunks of at most 3000 characters, named `sb-<ref>-auth-token` or `….0`, `….1`, …. Every write is read back. If the browser refused a cookie, the partly written cookies are deleted, the session is kept in memory for the visit, and a warning is logged.
+  - `validateConfig()` goes beyond the AC. It also rejects a URL that isn't `https://` (localhost may use `http://`), a legacy JWT key, any key not starting with `sb_publishable_`, and `sb_secret_` in *any* `CONFIG` field.
+  - A missing supabase-js library (CDN blocked, or an integrity mismatch) is a setup error too.
+  - `app.js`'s `boot()` starts the theme, then calls `getSupabase()`. On a `SetupError`, it shows "Board Game Olympics can't start" and the problems in `#app` (`role="alert"`, text only), logs them, and returns `null`. Any other error propagates.
+  - `CONFIG` is read by name behind `typeof`, because `config.js`'s top-level `const` isn't a property of `window`. A test runs the module in an iframe that declares the globals exactly as the real scripts do.
+  - README § Supabase client and sessions has a troubleshooting table, keyed on phrases from each message.
+- Results: `tests/run.sh` PASS 85/85 (31 new). A mutation check broke `supabase.js`, `app.js` and the CSS 64 different ways, and every one failed the suite.
+  - It first caught 63 of 64. The miss showed that the test didn't pin the "config.js didn't load" phrase that README's table relies on, so the test now checks that phrase.
+  - Headless Chrome on the real page:
+    - The dev config starts the client with no console output.
+    - The placeholder config, a secret key, and a broken CDN integrity hash each show the right message, with the theme toggle still working.
+    - The error box fits at 360 px and on desktop, in both themes.
 
 ---
 
@@ -584,6 +598,7 @@ Helpers that the feed, message board, sidebar, and admin all need. Putting them 
 - Depends on: 007.
 - Client route guards are UX only. RLS (003) is the real enforcement; say so in a comment.
 - From ISSUE-006 (ADR-020): the header already exists as static markup in `index.html`: `<header class="site-header">`, outside `#app`, holding the theme toggle. Add the logo, nav and logout to it. Don't render a second header or toggle.
+- From ISSUE-007 (ADR-021): `boot()` already starts the theme, then calls `getSupabase()`. It returns the client, or `null` once a setup error is showing. Route only after `await client.auth.getSession()`, which waits for supabase-js to consume an `#access_token` / `#error` fragment (`detectSessionInUrl`).
 
 ---
 
@@ -662,6 +677,7 @@ Login UI and flows for Google, Facebook, and email magic link, plus logout. Invi
 - Uninvited OAuth sign-ins create an `auth.users` row with no profile, so no access. This is harmless; cleanup is optional.
 - Seeded and admin-created users have no auth account yet. Their first sign-in must be Google/Facebook or come through an invite link.
 - Facebook apps must be switched to Live mode for non-developer users, and app review may apply.
+- From ISSUE-007 (ADR-021): `signOut()` calls the storage's `removeItem()`, which deletes every `sb-…-auth-token` chunk. To test logout without the network, pass `createSupabaseClient()` a fake library, plus a `createCookieStorage({ cookieJar })` built on a fake jar (see `tests/js/test_007_cookie_storage.js`).
 
 ---
 
@@ -1423,6 +1439,7 @@ Stand up the production Supabase project and the Cloudflare Pages site on the cu
 - Depends on: 001–029, 032.
 - The Boss performs the dashboard and DNS steps. Claude prepares the files, checklists, and doc updates.
 - From ISSUE-006 (ADR-020): the CSP must allow the inline theme script in `index.html` by its `sha256-…` hash, not `'unsafe-inline'`. Hash the exact text between `<script>` and `</script>`, whitespace included. Consider a test that recomputes the hash and checks `_headers` contains it, so an edit to the script can't silently break the theme on prod.
+- From ISSUE-007 (ADR-021): the CSP's `connect-src` must allow the Supabase project origin (`https://<ref>.supabase.co`). A bad `config.js` on prod shows "Board Game Olympics can't start", not a blank page. The deploy test that fetches `/config.js` could also check it contains `sb_publishable_` and no `sb_secret_`.
 
 - Apply migrations per SETUP_SUPABASE.md Step 6. Before any invitations go out, the admin sets the event date and theme, which creates the first `event_settings` row. Rows created earlier would be stamped with the calendar year (ADR-008).
 - From ISSUE-005: on prod, apply **only** `db/seed/001_admin.sql` (SETUP_SUPABASE.md Step 7). Never apply `002_test_data_2025.sql`. Its guard can't recognise a new prod project that has no event yet. Then sign in as gwpage@gmail.com to link the admin profile.

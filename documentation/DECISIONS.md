@@ -427,3 +427,40 @@ Format: `~/.claude/rules/quality.md`. Open work that implements these lives in [
   - Someone who clicks the toggle once never follows the OS again in that browser, unless they clear site data.
   - Other open tabs pick up a new choice on their next load, not live.
   - Changing a colour means changing COLORS.md and `styles.css` together. The test compares them, and fails on any hex colour outside the two token blocks.
+
+---
+
+## [ADR-021] Session in chunked cookies, the implicit auth flow, and an on-page setup error
+- **Date:** 2026-11-16
+- **Status:** Accepted
+- **Context:** SPEC § Session Management wants the session kept in a cookie that effectively never expires, with `persistSession` on. supabase-js keeps it in localStorage by default, but accepts any storage object with `getItem`, `setItem` and `removeItem`. ISSUE-007 had to settle:
+  - **Size.** A Supabase session is JSON: two tokens plus the user's metadata and sign-in identities, usually 3–6 KB once encoded. Browsers keep at most 4096 bytes per cookie, and silently drop anything bigger.
+  - **Lifetime (A11).** Chrome caps cookie lifetimes at 400 days. Safari caps cookies set from JavaScript at 7 days.
+  - **Exposure.** Cookies can only be HttpOnly if a server sets them, and this site has none.
+  - **Flow.** supabase-js offers PKCE or implicit.
+  - **Failure.** If `config.js` is missing, still holds the placeholders, or has a secret key pasted in, or the CDN script is blocked, the page would sit on "Loading…" forever.
+- **Decision:**
+  - **Cookie storage** (`createCookieStorage()` in `public/js/supabase.js`):
+    - Values are percent-encoded, so `;`, `=`, spaces and unicode are safe. They are then split into chunks of at most 3000 characters, which leaves room under 4096 bytes for the name and attributes.
+    - A value that fits one cookie is stored under the storage key, `sb-<project-ref>-auth-token`. A bigger one is stored as `….0`, `….1`, ….
+    - Every write deletes whichever of that key's cookies the new value doesn't use, so a shrinking session leaves no stale chunks. Chunks are joined before decoding.
+    - Attributes: `Path=/; Max-Age=31536000; SameSite=Lax`, plus `Secure` on https. No `Domain`, so the cookies stay on this exact host. No `__Host-` prefix: it requires `Secure`, which doesn't work on `http://localhost`.
+    - Every write is read back, because browsers drop refused cookies without an error. If the read-back fails (cookies blocked, or a chunk dropped), the partly written cookies are deleted, the value is kept in memory for the rest of the visit, and a warning is logged. A corrupted cookie reads as signed out, with a warning. Nothing throws into supabase-js.
+  - **Implicit flow.** It's already the supabase-js default, but it's set explicitly so an upgrade can't quietly change it. PKCE keeps a verifier in the browser that started the sign-in, so a magic link opened in another browser fails. So does one opened in a mail app's built-in browser, which is common on phones.
+  - **One client.** `getSupabase()` creates it on first use and returns the same one after. Nothing else calls `createClient()`. It reads the `CONFIG` and `supabase` globals by name, behind `typeof`, because `config.js`'s top-level `const CONFIG` is global but isn't a property of `window`. A test runs the module in an iframe that declares the globals exactly as the real scripts do.
+  - **Validate first, and show problems on the page.** `validateConfig()` rejects:
+    - a missing or blank `CONFIG`, URL or key;
+    - `config.example.js`'s placeholders;
+    - a URL that isn't `https://` (plain `http://` is allowed only for `localhost` and `127.0.0.1`);
+    - a key that doesn't start with `sb_publishable_`, with specific messages for a legacy JWT key and the placeholder;
+    - `sb_secret_` in any `CONFIG` field. Its message says to remove the key and revoke it.
+
+    A missing supabase-js library and an error thrown by `createClient()` are setup problems too. `boot()` shows the problems in `#app` as a `role="alert"` box, inserted as text, never HTML, and logs them. Any other error is a bug and propagates as usual.
+- **Consequences:**
+  - Sessions survive browser restarts. supabase-js refreshes the session on every visit and rewrites the cookies, so anyone who visits at least once every 7 days stays signed in on every browser. A Safari user away longer signs in again. Safari applies the same 7-day limit to localStorage, so cookies lose nothing there.
+  - Session tokens are readable by JavaScript, exactly as they would be in localStorage, so a cross-site scripting bug could steal them. Never render untrusted HTML. Use `textContent`, or ISSUE-008's `escapeHtml`.
+  - The cookies, a few KB, ride along on every request to the site's own origin, which serves only static files. Nothing reads them there, and they're never sent to Supabase, which is a different site.
+  - With the implicit flow, tokens arrive in the URL fragment (`#access_token=…`). Browsers never send fragments to servers, and supabase-js clears it from the address bar after reading it. ISSUE-009 must let Supabase consume it before routing.
+  - Logout (ISSUE-011) calls `signOut()`, which calls `removeItem()`, which deletes every chunk.
+  - Someone with cookies blocked can sign in, but is signed out when the page reloads.
+  - Supabase's own cookie helper (`@supabase/ssr`) solves this for server-rendered apps. It's an npm dependency built around a server, so it isn't used.

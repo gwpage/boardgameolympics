@@ -140,6 +140,35 @@ a {
   display: none;
 }
 
+/* === Setup error (ISSUE-007) ===
+ *
+ * Shown in #app by js/supabase.js's renderSetupError() when the site can't
+ * start: config.js missing or wrong, or the Supabase library didn't load.
+ * COLORS.md has no error colour, so the accent borrows the red button colour.
+ */
+
+.setup-error {
+  box-sizing: border-box;
+  width: min(40rem, 100% - 2rem);
+  margin: 2rem auto;
+  padding: 1rem 1.25rem;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--btn-secondary);
+  border-radius: 0.5rem;
+  /* Messages contain long URLs and key prefixes; let them wrap on phones. */
+  overflow-wrap: anywhere;
+}
+
+.setup-error h1 {
+  margin-top: 0;
+  font-size: 1.25rem;
+}
+
+.setup-error li + li {
+  margin-top: 0.5rem;
+}
+
 /* === Landing page (ISSUE-010) === */
 
 /* === Login & registration (ISSUE-011, ISSUE-012) === */
