@@ -12,7 +12,34 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- Must equal SITE_NAME in js/app.js, which sets the title as views change (a test checks). -->
   <title>Board Game Olympics</title>
+
+  <!--
+    Search results and link previews (ISSUE-010, ADR-024). Search engines and
+    chat apps read these without running JavaScript, so they live here.
+    - data-placeholder marks what's still a placeholder, so it can be found
+      before launch: the description (CONTENT_CHECKLIST.md § Meta / SEO) and
+      the domain.
+    - Open Graph needs absolute URLs. boardgameolympics.example is a stand-in
+      until ISSUE-030 sets up the real domain. These are the only absolute
+      URLs in the file; everything the page itself loads is relative (ADR-003).
+    - og-image.png is a 1200 × 630 placeholder (logo and name on the dark
+      theme's background) until the Boss supplies one.
+    - Twitter / X reads og:title, og:description and og:image when its own
+      tags are missing, so only twitter:card is needed.
+  -->
+  <meta name="description" content="Join the annual Board Game Olympics: an invite-only gathering of board game enthusiasts competing for glory." data-placeholder>
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Board Game Olympics">
+  <meta property="og:title" content="Board Game Olympics">
+  <meta property="og:description" content="Join the annual Board Game Olympics: an invite-only gathering of board game enthusiasts competing for glory." data-placeholder>
+  <meta property="og:url" content="https://boardgameolympics.example/" data-placeholder>
+  <meta property="og:image" content="https://boardgameolympics.example/assets/images/og-image.png" data-placeholder>
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="The Board Game Olympics logo: rings made of meeples, dice and coins above a trophy and game pieces">
+  <meta name="twitter:card" content="summary_large_image">
 
   <!--
     Theme bootstrap (COLORS.md § Preventing Flash of Wrong Theme; ISSUE-006).

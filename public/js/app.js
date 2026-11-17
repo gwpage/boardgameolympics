@@ -10,7 +10,7 @@
  *      route or the sign-in changes:
  *        - loading:      "Loading…" until the session is known, so a
  *                        signed-in member never sees the landing page flash up;
- *        - landing:      logged out, on every route (ISSUE-010 builds it);
+ *        - landing:      logged out, on every route (landing.js, ISSUE-010);
  *        - registration: invited, signed in, form not filled in yet (ISSUE-012);
  *        - not invited:  signed in, but not a member (or deactivated);
  *        - unavailable:  Supabase couldn't be reached, with Try again;
@@ -51,6 +51,7 @@
 import { initTheme } from './theme.js';
 import { SetupError, getSupabase, renderSetupError } from './supabase.js';
 import { ACCOUNT, VIEW, isAuthCallback, navLinks, parseRoute, readAuthCallbackError, resolveView } from './router.js';
+import { renderLanding } from './landing.js';
 import { createElement as create } from './util.js';
 
 /** The site's name: the whole <title> on the home and landing pages, the suffix elsewhere. */
@@ -281,7 +282,7 @@ export async function startApp({
 
   const show = (view, route, { moveFocus }) => {
     const details = VIEWS[view];
-    const content = details.render({ doc: appRoot.ownerDocument, account, route, retry: refresh });
+    const content = details.render({ doc: appRoot.ownerDocument, client, account, route, retry: refresh });
     if (details.memberLayout) {
       showInMemberLayout(appRoot, content);
     } else {
@@ -428,9 +429,9 @@ export function renderNav(nav, route, account) {
 /* ------------------------------------------------------------------------- */
 
 /*
- * Each view's render function gets { doc, account, route, retry } and returns
- * one element marked with data-view. Text always goes in as text nodes, never
- * as HTML (util.js's createElement).
+ * Each view's render function gets { doc, client, account, route, retry } and
+ * returns one element marked with data-view. Text always goes in as text
+ * nodes, never as HTML (util.js's createElement).
  *
  * Most are placeholders until their issue lands. To take one over, import the
  * feature module's render function and put it in VIEWS in place of the
@@ -449,16 +450,6 @@ function placeholder(doc, what, issue) {
 
 function renderLoading({ doc }) {
   return create(doc, 'p', { class: 'app-status', role: 'status', 'data-view': VIEW.LOADING }, 'Loading…');
-}
-
-function renderLanding({ doc }) {
-  return create(
-    doc,
-    'section',
-    { class: 'app-message', 'data-view': VIEW.LANDING },
-    pageHeading(doc, SITE_NAME),
-    placeholder(doc, 'the public landing page, with the date, location, description and login button', 'ISSUE-010')
-  );
 }
 
 function renderRegistration({ doc }) {
@@ -542,7 +533,7 @@ function memberPage(view, heading, what, issue) {
  */
 const VIEWS = Object.freeze({
   [VIEW.LOADING]: { title: null, memberLayout: false, render: renderLoading },
-  [VIEW.LANDING]: { title: null, memberLayout: false, render: renderLanding },
+  [VIEW.LANDING]: { title: null, memberLayout: false, render: renderLanding }, // landing.js (ISSUE-010)
   [VIEW.REGISTRATION]: { title: 'Welcome', memberLayout: false, render: renderRegistration },
   [VIEW.NOT_INVITED]: { title: 'Not invited', memberLayout: false, render: renderNotInvited },
   [VIEW.UNAVAILABLE]: { title: "Can't connect", memberLayout: false, render: renderUnavailable },
