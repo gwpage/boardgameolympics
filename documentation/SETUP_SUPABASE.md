@@ -69,23 +69,47 @@ Creating new keys does **not** turn off the old ones. This project never uses th
 
 ## Step 4: Set Up Authentication
 
-Supabase Auth handles both SSO (OAuth) and magic links out of the box.
+People sign in with Google, Facebook, or a magic link (a one-time link by email). Signing in only proves who someone is. Whether they get in is decided afterwards by the site's database: the `claim_membership` check (ISSUE-012) and Row Level Security. So Supabase itself must let new people sign up, and the site does the turning away. How the site uses all this is in ADR-025 and `public/js/auth.js`.
+
+The dashboard gets rearranged from time to time. If a menu below has moved, search the dashboard for the setting's name.
+
+### Keep sign-ups switched on
+
+**Authentication → Sign In / Providers → User Signups → Allow new users to sign up: on.**
+
+An invited guest's first sign-in creates their Supabase account. With sign-ups off, every new guest is locked out. Someone who signs up without an invitation gets an account with no profile behind it, so they see "You're not on the guest list" and can't read anything.
 
 ### Enable Magic Link (Email Login)
 
-1. Go to **Authentication** → **Providers** in the Supabase dashboard.
-2. **Email** provider is enabled by default. Magic link is supported natively.
-3. Under **Authentication** → **Email Templates**, you can customize the magic link email template to match your event branding.
+1. **Authentication → Sign In / Providers → Email**: enabled (it is by default). Leave **Confirm email** on.
+2. **Email OTP Expiration**: leave it at 3600 seconds (1 hour). A link used after that, or used twice, brings the visitor back to the site with "That sign-in link has expired or has already been used".
+3. Nothing else to set. The site decides who may get a *new* account by magic link. It asks Supabase to create one only when the visitor arrived with an invite token (`?invite=…`). Without one, an unknown address is refused (`otp_disabled`), and the site says there's no account yet.
 
-### Configure Email for Invitations
+Seeded and admin-created guests have a profile but no Supabase account yet. Their first sign-in must be with Google or Facebook, or through an invite link. (ISSUE-012 links the account to the profile by email.)
 
-Supabase includes a built-in email service (via GoTrue) that handles magic links out of the box. The same service can be used to send invitation emails. To keep the stack minimal, we'll use Supabase for all email needs.
+### Email templates
 
-**Important: Built-in email limitations**
+**Authentication → Emails → Templates** (older dashboards: **Authentication → Email Templates**). Three templates matter:
 
-Supabase's default email sender has rate limits (around 2–3 emails per hour on the free tier). This is fine for development and testing, but if you need to send a batch of invitations at once, you should configure a custom SMTP provider:
+| Template | When it's sent |
+|----------|----------------|
+| **Magic Link** | A returning guest asks for a sign-in link. |
+| **Confirm signup** | Probably: a first-time guest asks for a link with an invite token, while **Confirm email** is on. Supabase's docs don't say which of these two a brand-new address gets. The manual sign-in checklist (`tests/manual/test_011_sign_in.md`) records which one arrives. Brand both. |
+| **Invite** | The admin invites someone by email (ISSUE-022, ISSUE-023). |
 
-1. Go to **Project Settings** → **Authentication** → **SMTP Settings**.
+In every template, **the link must be `{{ .ConfirmationURL }}`**. It carries the `redirect_to` the site asked for, and that is where the invite token travels. A link built from `{{ .SiteURL }}` sends the guest to the home page without their token. If you ever build the link by hand, use `{{ .RedirectTo }}`, never `{{ .SiteURL }}`.
+
+The wording to use is in [CONTENT_CHECKLIST.md](./CONTENT_CHECKLIST.md) § Copy — Magic Link Email.
+
+### Configure Email (SMTP)
+
+Supabase's built-in email is for trying things out:
+- It only sends to members of your Supabase organization. Anyone else is refused (`email_address_not_authorized`), and the site says "The site can't send email to that address yet".
+- It sends about 2 emails an hour.
+
+So configure a custom SMTP provider before anyone else uses the site:
+
+1. Go to **Authentication → Emails → SMTP Settings** (older dashboards: **Project Settings → Authentication → SMTP Settings**).
 2. Toggle on **"Enable Custom SMTP"**.
 3. Enter your **Gmail SMTP** credentials:
    - **Host**: `smtp.gmail.com`
@@ -95,6 +119,7 @@ Supabase's default email sender has rate limits (around 2–3 emails per hour on
    - Free, 500 emails/day limit — more than enough for this project.
 4. Set the **Sender name** to "Board Game Olympics" and **Sender email** to your Gmail address.
 5. Click **Save**.
+6. **Authentication → Rate Limits**: with custom SMTP, Supabase allows 30 emails an hour by default. Raise it if you'll send a big batch of invitations at once.
 
 **How to generate a Gmail App Password:**
 
@@ -104,41 +129,49 @@ Supabase's default email sender has rate limits (around 2–3 emails per hour on
 4. Create a new app password (name it something like "Board Game Olympics").
 5. Copy the 16-character password and paste it into the Supabase SMTP settings.
 
-**Customize the invitation email template:**
-
-1. Go to **Authentication** → **Email Templates**.
-2. Select the **"Invite"** template.
-3. Customize the subject line and body to match the Board Game Olympics branding. The template supports variables like `{{ .Token }}` and `{{ .SiteURL }}` for generating the invite link.
-
 ### Enable Google OAuth
 
-1. Go to **Authentication** → **Providers** → **Google**.
-2. Toggle it on.
-3. You'll need a Google OAuth Client ID and Secret:
-   - Go to [console.cloud.google.com](https://console.cloud.google.com).
-   - Create a new project (or use an existing one).
-   - Go to **APIs & Services** → **Credentials** → **Create Credentials** → **OAuth Client ID**.
+1. In [console.cloud.google.com](https://console.cloud.google.com), create a project (or use an existing one).
+2. Set up the **OAuth consent screen** (Google Auth Platform → Branding, Audience):
+   - **App name**: Board Game Olympics. **User support email** and **developer contact**: your address.
+   - **Authorized domains**: `boardgameolympics.net`, and your Supabase project's domain, `<project-ref>.supabase.co`.
+   - **Scopes**: `openid`, `…/auth/userinfo.email` and `…/auth/userinfo.profile`. These are all Supabase asks for. They're non-sensitive, so Google doesn't need to review the app.
+   - **Audience → Publishing status: In production.** While it says **Testing**, only the test users you list can sign in, and everyone else is turned away by Google.
+3. **APIs & Services → Credentials → Create Credentials → OAuth client ID**:
    - Application type: **Web application**.
-   - Authorized redirect URI: `https://your-project.supabase.co/auth/v1/callback`
-   - Copy the **Client ID** and **Client Secret** back into the Supabase provider settings.
-4. Click **Save**.
+   - **Authorized redirect URI**: `https://<project-ref>.supabase.co/auth/v1/callback` (shown on the Supabase Google provider page as **Callback URL**). No JavaScript origins are needed.
+4. In Supabase, **Authentication → Sign In / Providers → Google**: turn it on, and paste the **Client ID** and **Client Secret**. Click **Save**.
+
+Google's sign-in screen says you're continuing to `<project-ref>.supabase.co`, not to boardgameolympics.net. Changing that needs Supabase's paid custom-domain add-on; it isn't worth it for this site.
 
 ### Enable Facebook OAuth
 
-1. Go to **Authentication** → **Providers** → **Facebook**.
-2. Toggle it on.
-3. You'll need a Facebook App ID and Secret:
-   - Go to [developers.facebook.com](https://developers.facebook.com).
-   - Create a new app (type: **Consumer**).
-   - Under **Facebook Login** → **Settings**, add the redirect URI: `https://your-project.supabase.co/auth/v1/callback`
-   - Copy the **App ID** and **App Secret** back into the Supabase provider settings.
-4. Click **Save**.
+1. In [developers.facebook.com](https://developers.facebook.com), **Create app**. Choose the use case **Authenticate and request data from users with Facebook Login** (older dashboards ask for an app type instead: choose **Consumer**). Meta changes this flow often; the goal is an app with Facebook Login.
+2. In the Facebook Login use case, add the **email** permission next to **public_profile**. Without `email`, Supabase can't learn the guest's address, and the sign-in fails.
+3. **Facebook Login → Settings → Valid OAuth Redirect URIs**: `https://<project-ref>.supabase.co/auth/v1/callback`.
+4. **App settings → Basic**: fill in **App domains** (`boardgameolympics.net`), **Privacy Policy URL**, **User data deletion** (an instructions URL is enough), a category and an icon. Meta won't let the app go live without the privacy policy and deletion instructions. The site has neither yet; see [CONTENT_CHECKLIST.md](./CONTENT_CHECKLIST.md) § Legal Pages.
+5. **Publish** the app (switch it to **Live**). In development mode, only people with a role on the app can sign in.
+6. In Supabase, **Authentication → Sign In / Providers → Facebook**: turn it on, and paste the **App ID** and **App Secret**. Click **Save**.
+
+**Until Facebook is switched on in Supabase**, the "Continue with Facebook" button leads to a bare Supabase error page (`Unsupported provider: provider is not enabled`), not back to the site. If Facebook won't be set up, remove it from `LOGIN_PROVIDERS` in `public/js/auth.js`.
 
 ### Configure Redirect URLs
 
-1. Go to **Authentication** → **URL Configuration**.
-2. Set your **Site URL** to your custom domain: `https://boardgameolympics.net`.
-3. Add any additional redirect URLs if needed (e.g., `http://localhost:3000` for local development).
+After signing in, Supabase sends the visitor back to the address the site asks for: the page plus `?invite=<token>` when there is one. Supabase only does that for addresses on its allow list. **An address that isn't allowed is replaced by the Site URL**, so sign-in still works but the invite token is lost on the way, and the guest ends up "not on the guest list".
+
+**Authentication → URL Configuration**:
+
+| Project | Site URL | Redirect URLs |
+|---------|----------|---------------|
+| prod | `https://boardgameolympics.net` | `https://boardgameolympics.net/**` |
+| dev | `http://localhost:8000/public/` | `http://localhost:8000/**` and `http://127.0.0.1:8000/**` |
+
+- `**` matches anything, including `/public/` and `?invite=…`. A single `*` stops at `/` and `.`, so it isn't enough.
+- Supabase also accepts addresses on the Site URL's own host, but its docs don't promise it, so prod lists its own domain anyway.
+- If the site also answers at `www.boardgameolympics.net`, either redirect `www` to the bare domain (ISSUE-030) or add `https://www.boardgameolympics.net/**`.
+- Supabase's own callback (`https://<project-ref>.supabase.co/auth/v1/callback`) goes in the Google and Facebook consoles, not here.
+
+To check it works: follow the manual sign-in checklist (`tests/manual/test_011_sign_in.md`). The invite token must still be in the address bar after signing in.
 
 ---
 

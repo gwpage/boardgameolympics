@@ -34,7 +34,7 @@ public/          Everything the browser loads. Cloudflare Pages serves only this
   config.js      Your Supabase settings (gitignored; see below).
   js/  css/  assets/
 db/              SQL: migrations/ (the schema, applied in order) and seed/ (the admin everywhere; 2025 test data on dev only).
-tests/           Test harness, test page, and tests: js/, db/, deploy/.
+tests/           Test harness, test page, and tests: js/, db/, deploy/, and manual/ (checklists for what only a person can check).
 scripts/         Deploy helpers (from ISSUE-030).
 documentation/   You are here.
 ```
@@ -58,7 +58,7 @@ Site code uses **relative paths only** (no leading `/`), so the site works at `/
 
 3. Open the site at **http://localhost:8000/public/**.
 
-Logged out, it shows the landing page, with the event date from the dev database. Text in square brackets is a placeholder: copy still to come, or a part a later issue builds. If it shows **"Board Game Olympics can't start"** instead, `config.js` is missing or wrong; the box says what to fix (see [Supabase client and sessions](#supabase-client-and-sessions)). Until ISSUE-012, signing in shows "You're not on the guest list" (see [App shell and routing](#app-shell-and-routing)).
+Logged out, it shows the landing page, with the event date from the dev database. Text in square brackets is a placeholder: copy still to come, or a part a later issue builds. If it shows **"Board Game Olympics can't start"** instead, `config.js` is missing or wrong; the box says what to fix (see [Supabase client and sessions](#supabase-client-and-sessions)). Signing in on dev needs dev's redirect URLs set up once (see [Signing in](#signing-in)). Until ISSUE-012, signing in shows "You're not on the guest list" (see [App shell and routing](#app-shell-and-routing)).
 
 ---
 
@@ -208,11 +208,11 @@ There are two themes: light, and dark ("Game Night Mode"). Their colours are CSS
 
 - **"Loading…"** shows until supabase-js has loaded the saved session, so a member never sees the landing page flash up.
 - **"Can't reach Board Game Olympics"** means Supabase couldn't be asked who's signed in. Try again reloads; the console says what failed.
-- **Sign-in returns** (`#access_token=…`, `#error=…`) are never routes. supabase-js reads them first; the app then removes whatever is left from the address bar. A failed sign-in logs `Sign-in: …` in the console and is kept for ISSUE-011's message as the `callbackError` that `startApp()` returns.
+- **Sign-in returns** (`#access_token=…`, `#error=…`) are never routes. supabase-js reads them first; the app then removes whatever is left from the address bar. A failed sign-in logs `Sign-in: …` in the console, and the landing page explains it once (see [Signing in](#signing-in)).
 - **Log out** signs out of this browser only, not the person's other devices.
 - **Hiding a page is not security.** Row Level Security decides what anyone can read or change (ADR-017).
 
-**Filling in a page.** Each view in `app.js`'s `VIEWS` table starts as a placeholder naming the issue that builds it. Replace its `render` with your module's function. It gets `{ doc, client, account, route, retry }` and returns one element with a `data-view` attribute. Build elements with `createElement` from `util.js`, which adds strings as text, never HTML. `account.profile` holds the member's `id`, `name` and `role`. Member pages appear inside the shared layout, beside the sidebar (whose placeholder is in `showInMemberLayout()`).
+**Filling in a page.** Each view in `app.js`'s `VIEWS` table starts as a placeholder naming the issue that builds it. Replace its `render` with your module's function. It gets `{ doc, client, account, route, retry }`, plus `{ callbackError, inviteToken, baseUrl }` for signing in, and returns one element with a `data-view` attribute. Build elements with `createElement` from `util.js`, which adds strings as text, never HTML. `account.profile` holds the member's `id`, `name` and `role`. Member pages appear inside the shared layout, beside the sidebar (whose placeholder is in `showInMemberLayout()`).
 
 **Seeing member pages on dev before ISSUE-012.** Until ISSUE-012's `claim_membership` exists, signing in never links you to a profile. To link one by hand, sign in on dev once, then run this in the dev SQL Editor (never prod):
 
@@ -223,6 +223,33 @@ where lower(email) = lower('you@example.com');
 ```
 
 Set `auth_user_id = null` to undo it.
+
+---
+
+## Signing in
+
+`public/js/auth.js` draws the login panel the landing page opens, and makes the sign-in calls (ADR-025). Supabase setup for all of it is [SETUP_SUPABASE.md Step 4](./SETUP_SUPABASE.md#step-4-set-up-authentication).
+
+- **Three ways in:** Continue with Google, Continue with Facebook, or an emailed magic link. Each leaves the site and comes back to the page it started on, at `/` in production or `/public/` locally.
+- **The invite token rides along.** If the visitor arrived with `?invite=<token>`, the address they come back to carries it too, for ISSUE-012 to claim. Only a well-formed token counts: 64 lowercase hex characters.
+- **New accounts by magic link need a token.** Without one, an address Supabase doesn't know is refused, and the visitor reads "There's no account for that email address yet". Google and Facebook always create the account. Neither is the real gate: an account without an invitation behind it gets no profile and no access.
+- **Messages are the site's own.** Supabase's error codes become plain sentences (`AUTH_MESSAGE` in `auth.js`). Text in the URL's `#error_description` is never shown, because anyone can put words there.
+- **Log out** signs out of this browser only. supabase-js deletes the session, and with it every `sb-` cookie.
+
+**Setting up dev for sign-in (once).** In the dev dashboard, **Authentication → URL Configuration**: Site URL `http://localhost:8000/public/`, Redirect URLs `http://localhost:8000/**` and `http://127.0.0.1:8000/**`. Without them, Supabase sends you to its default Site URL after signing in, and the invite token is lost on the way.
+
+**When sign-in misbehaves:**
+
+| What you see | Likely cause |
+|--------------|--------------|
+| Back on the site, but `?invite=` is gone, or you land on a different address | The redirect URLs above aren't set for this project. |
+| A bare page saying `Unsupported provider: provider is not enabled` | That provider is switched off in Supabase. Switch it on, or take it out of `LOGIN_PROVIDERS` in `auth.js`. |
+| Google says the app is in testing, or only lets some people in | Google consent screen's publishing status is **Testing**. Set it to **In production**. |
+| Facebook only works for you | The Facebook app is in development mode. Publish it (it needs a privacy policy URL). |
+| "The site can't send email to that address yet" | Supabase's built-in email only reaches your Supabase organization. Set up custom SMTP. |
+| "Too many sign-in attempts…" | Supabase's email rate limit. Wait, or raise it under **Authentication → Rate Limits**. |
+
+The round trips through Google, Facebook and the mail app can only be checked by hand: [`tests/manual/test_011_sign_in.md`](../tests/manual/test_011_sign_in.md). Run it after any change to sign-in or to the auth settings.
 
 ---
 

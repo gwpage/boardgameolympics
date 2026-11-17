@@ -55,6 +55,7 @@ These are entered via the admin panel, but you should have them ready for the in
 
 - [ ] **Email subject line** — (e.g., "Your Board Game Olympics Login Link").
 - [ ] **Email body** — brief message with the magic link. Supabase provides a default template, but you can customize it to match your branding.
+- [ ] **Two templates, same message** — Supabase sends returning guests the **Magic Link** template, and probably sends a first-time guest the **Confirm signup** template instead. Use this copy in both. The link in each must stay `{{ .ConfirmationURL }}`, which carries the guest's invite token; see SETUP_SUPABASE.md § Email templates.
 
 ---
 
@@ -69,6 +70,15 @@ These are entered via the admin panel, but you should have them ready for the in
 
 - [ ] **Email subject line** — a reminder for people who RSVP'd yes (e.g., "Board Game Olympics is in 1 week!" / "Board Game Olympics is this Saturday!").
 - [ ] **Email body** — a quick reminder with the event date, location, and any last-minute details. Sent manually by the admin, typically ~1 week and ~2 days before the event.
+
+---
+
+## Legal Pages
+
+Facebook won't let its sign-in go live without these (SETUP_SUPABASE.md § Enable Facebook OAuth). Google's consent screen can show them too.
+
+- [ ] **Privacy policy** — a short page saying what the site keeps (name, email, country, flag, RSVP, messages), why, and who can see it. It needs a public URL; a page on the site or a public document both work.
+- [ ] **Data deletion instructions** — how a guest asks for their account and data to be removed (e.g., "email the host at …"). Can be a section of the privacy policy, with its own URL.
 
 ---
 
