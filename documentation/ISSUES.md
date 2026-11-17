@@ -415,7 +415,7 @@ Idempotent seed scripts: the admin account (all environments) and the 2025 test 
 - **Status:** Complete
 - **Branch:** `issue/006-theme-system`
 - **Spec Reference:** COLORS.md (all); SPEC.md § Project Structure (`theme.js`)
-- **PR:** —
+- **PR:** #8
 
 ### Description
 CSS color tokens for both themes, flash-free initial theme selection, and a persistent toggle.
