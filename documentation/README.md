@@ -33,7 +33,7 @@ public/          Everything the browser loads. Cloudflare Pages serves only this
   index.html     The single page: landing page when logged out, dashboard when logged in.
   config.js      Your Supabase settings (gitignored; see below).
   js/  css/  assets/
-db/              SQL: migrations/ (the schema, applied in order) and seed/ (seed data, from ISSUE-005).
+db/              SQL: migrations/ (the schema, applied in order) and seed/ (the admin everywhere; 2025 test data on dev only).
 tests/           Test harness, test page, and tests: js/, db/, deploy/.
 scripts/         Deploy helpers (from ISSUE-030).
 documentation/   You are here.
@@ -108,7 +108,7 @@ tests/db/run_local.sh                                 # every tests/db/test_*.sq
 tests/db/run_local.sh tests/db/test_002_schema.sql    # just one
 ```
 
-It creates a throwaway Postgres (Unix socket only, nothing on the network) and applies `tests/db/supabase_stub.sql`, a minimal stand-in for Supabase's roles, `auth.users`, `auth.uid()` and the `storage` tables. Its `flags` bucket starts out private and unlimited, as if it had been made by hand, so every run checks that `003_storage.sql` corrects an existing bucket. Then it applies every migration **twice** (to prove they're safe to re-run), applies any seed files, runs the tests, prints `PASS`/`FAIL`, and deletes the database. A run takes a second or two. Exit codes: 0 pass, 1 failure, 2 setup problem. Set `PG_BIN` if the tools aren't in the Homebrew location.
+It creates a throwaway Postgres (Unix socket only, nothing on the network) and applies `tests/db/supabase_stub.sql`, a minimal stand-in for Supabase's roles, `auth.users`, `auth.uid()` and the `storage` tables. Its `flags` bucket starts out private and unlimited, as if it had been made by hand, so every run checks that `003_storage.sql` corrects an existing bucket. Then it applies every migration **twice** (to prove they're safe to re-run), applies the seed files twice (to prove a re-run duplicates nothing), runs the tests, prints `PASS`/`FAIL`, and deletes the database. A run takes a second or two. Exit codes: 0 pass, 1 failure, 2 setup problem. Set `PG_BIN` if the tools aren't in the Homebrew location.
 
 **In Supabase (the real check, before merging).** Run against the **dev** project. **Never run tests against production.**
 
@@ -139,6 +139,19 @@ The stub only imitates Supabase, so the Supabase run is what counts. If the two 
 The schema lives in `db/migrations/` as numbered files (`001_schema.sql`, `002_…`). To set up a Supabase project, paste each file into **SQL Editor** → **New query** and click **Run**, in number order. Each file runs in one transaction, so it applies completely or not at all. Re-running one is harmless.
 
 To change the schema later, **add a new numbered migration**. Never edit one that has already been applied to production, because production would never see the change. Write the SQL test first, then check it passes with `tests/db/run_local.sh` before trying it on dev.
+
+### Seed data
+
+After the migrations, apply `db/seed/` in number order: `001_admin.sql` on every project, and `002_test_data_2025.sql` on **dev only**. Step 7 of [SETUP_SUPABASE.md](./SETUP_SUPABASE.md) has the details.
+
+Seeds follow one rule ([ADR-019](./DECISIONS.md)): **add what's missing, never change or delete an existing row**. That way they're safe to re-run on a dev database that's in use. A new seed must follow the rule too. `run_local.sh` applies the seeds twice, so a seed that duplicates rows fails the exact counts in `test_005_seed.sql`.
+
+To change the 2025 test data, change these three together:
+- `SEED_DATA_2025.md`;
+- `002_test_data_2025.sql`;
+- the expected data at the top of `test_005_seed.sql`.
+
+The test keeps its own copy on purpose, so a typo in one copy fails the test.
 
 ---
 

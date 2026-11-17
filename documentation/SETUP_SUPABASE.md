@@ -176,7 +176,7 @@ The schema lives in `db/migrations/`, as numbered SQL files. Apply them **in ord
 
 Each migration runs in a single transaction, so it applies completely or not at all. Re-running one is harmless.
 
-**Check it worked (dev project only):** paste and run each test file in `tests/db/` in number order (`test_002_schema.sql`, `test_003_rls.sql`, …). They change nothing (everything is rolled back), and each passes with "Success. No rows returned". See the [developer guide](./README.md#database-tests-sql) for details.
+**Check it worked (dev project only):** paste and run each test file in `tests/db/` in number order (`test_002_schema.sql`, `test_003_rls.sql`, `test_004_storage.sql`). `test_005_seed.sql` checks the seed data, so run it after Step 7. The tests change nothing (everything is rolled back), and each passes with "Success. No rows returned". See the [developer guide](./README.md#database-tests-sql) for details.
 
 ### Enable Row Level Security (RLS)
 
@@ -206,16 +206,34 @@ Role, email and deactivation changes go through admin RPCs (ISSUE-024).
 
 ---
 
-## Step 7: Seed the Admin User
+## Step 7: Seed the Data
 
-After setting up auth, you'll need to ensure the initial admin account is recognized. The approach depends on implementation, but typically:
+The seed scripts are in `db/seed/`. Apply them after all the migrations, the same way: **SQL Editor** → **New query** → paste the whole file → **Run**.
 
-1. The admin (Wiley Page, gwpage@gmail.com) signs up or logs in normally.
-2. A database trigger or manual SQL update sets their role to `admin`:
-   ```sql
-   UPDATE users SET role = 'admin' WHERE email = 'gwpage@gmail.com';
-   ```
-3. Alternatively, seed the admin record during the initial database migration.
+| File | Apply to | What it adds |
+|------|----------|--------------|
+| `001_admin.sql` | **Every project, prod included** | The first admin: Wiley Page, gwpage@gmail.com. |
+| `002_test_data_2025.sql` | **Dev only. Never prod.** | The 2025 test event from [`SEED_DATA_2025.md`](./SEED_DATA_2025.md): the event settings, 20 fake people with their countries and claims, 20 messages and 49 likes. |
+
+1. Apply `db/seed/001_admin.sql`.
+2. **Dev only:** apply `db/seed/002_test_data_2025.sql`.
+3. **Dev only:** run `tests/db/test_005_seed.sql`. It passes with "Success. No rows returned". Run it right after seeding: once you've changed a seeded person's data on dev (say, liking a message as Wiley), it fails, and that's expected.
+
+Each file runs in one transaction, and both are safe to run again. They add only what's missing and never change or delete an existing row ([ADR-019](./DECISIONS.md)). So re-seeding won't undo anything you've changed on dev.
+
+**How the admin gets admin rights.** The seed creates the profile but doesn't link it to a login. The first time someone signs in with gwpage@gmail.com, the app links that login to the profile (ISSUE-012), and that account is the admin from then on. The fake people have no login, so nobody can sign in as them.
+
+**The test-data script refuses to run**, and changes nothing, if `001_admin.sql` hasn't been applied or if the database already has an event after 2025. The second check keeps it out of prod once a real event has been set up. A brand-new prod project has no events yet, though, so there the only protection is not pasting it in.
+
+**On prod**, there's no event until the admin sets the date and theme in the admin panel (ISSUE-025). Do that before sending any invitations (ADR-008).
+
+**Locked out of admin?** For example, if the admin profile was deactivated or demoted by mistake. Re-running the seed won't fix that, because it never changes an existing row. Run this in the SQL Editor instead:
+
+```sql
+update public.users
+set role = 'admin', is_active = true, deactivated_at = null
+where lower(email) = 'gwpage@gmail.com';
+```
 
 ---
 

@@ -364,3 +364,42 @@ Format: `~/.claude/rules/quality.md`. Open work that implements these lives in [
   - A future bucket needs its own policies, and an extension of test_004's exact-policy check.
   - Postgres also applies the SELECT policy to an UPDATE or DELETE that reads a column, which hides mistakes in the other policies. test_004 checks those policies with statements that read no column (see the README).
   - Supabase blocks direct SQL DELETE on storage tables unless `storage.allow_delete_query` is `'true'`, which the Storage API sets for its own deletes. SQL tests set it to simulate API deletes. Deleting a row by SQL would orphan its file, so real deletes always go through the Storage API.
+
+---
+
+## [ADR-019] Seed data: add-only, re-runnable, guarded against prod
+
+- **Date:** 2026-11-16
+- **Status:** Accepted
+- **Context:**
+  - ISSUE-005 needs two seeds: the admin for every project, and the 2025 test event for dev only. Both must be safe to run again.
+  - Dev keeps being used after it's seeded, with sign-ins, likes and profile edits. A re-run must not undo those changes, and must not duplicate rows.
+  - Country claims are written only by a trigger, stamped with `now()` (ADR-011). The test data needs claims dated in 2025.
+  - SEED_DATA_2025.md gives dates but no times. Midnight UTC shows as the previous evening in US time zones.
+  - Nothing in a Postgres database says whether it's the dev or prod project.
+- **Decision:**
+  - **Seeds only add.** Each one inserts what's missing and never updates or deletes an existing row. Rows are matched like this:
+    - people by `lower(email)`;
+    - event settings by year;
+    - messages by author, text and time;
+    - likes by message and liker.
+  - **One exception.** A seeded person who has never claimed a country gets their seed country, RSVP and registration date. This applies only on the first run, and in practice only to the bare admin profile that `001_admin.sql` creates.
+  - **`001_admin.sql` doesn't restore admin rights on a re-run.** The mutation check showed why. The local runner applies seeds twice, so a restoring re-run made a wrong first run look correct. Recovering from a lockout is a documented one-line UPDATE instead (SETUP_SUPABASE.md Step 7).
+  - **Historical claims.** Each person is saved with their country, so the trigger writes the claim. Then any claim with `claimed_at = now()` gets the registration time instead. `now()` is fixed for the transaction, so that matches exactly the claims this run created.
+  - **Times:**
+    - people register at 12:00 UTC;
+    - they post at 18:00 UTC, and the two posts on 30 January are an hour apart;
+    - a like comes an hour after the later of the post and the liker registering.
+
+    Every documented date then shows unchanged in UTC and in every mainland US time zone.
+  - **Guards in `002_test_data_2025.sql`.** It has a DEV ONLY banner. It refuses to run, changing nothing:
+    - unless `001_admin.sql` has been applied;
+    - if any event after 2025 exists. The test data only makes sense while 2025 is the current year, and this also keeps it out of prod once a real event is set up.
+  - **Tests.** `tests/db/run_local.sh` applies the seeds twice. `test_005_seed.sql` then checks exact counts, which proves that re-running duplicates nothing. The test writes out the expected data again on its own, and checks only the 21 seeded people and what they own.
+  - **Seed data lives in `pg_temp` functions**, not temporary tables, which the SQL Editor would flag (see README). They're dropped at the end of the script.
+- **Consequences:**
+  - Re-seeding dev is always safe, but it doesn't reset changes made by hand. A "reset dev" script would need its own issue.
+  - `test_005` fails once a seeded person's data changes on dev, say Wiley liking a message. Run it straight after seeding.
+  - After Start New Year has been tried on dev (ISSUE-028), there's a 2026 event, so the 2025 seed refuses to run.
+  - A brand-new prod project, with no events yet, isn't covered by the guard. The banner and SETUP_SUPABASE.md Step 7 are the safeguard there.
+  - Changing the test data means changing SEED_DATA_2025.md, `002_test_data_2025.sql` and `test_005`'s expected data together.
